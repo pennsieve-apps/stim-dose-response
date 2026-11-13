@@ -163,19 +163,21 @@ unpacked (147 MB compressed).
 ## Validation
 
 **Synthetic fixture** (`tests/make_fixture.py`, asserted by `tests/test_processor.py`): pig
-amplitude x frequency grids with a planted Hill bradycardia, a pig whose response changes sign, a rat
-sweep, and a resting human recording.
+amplitude x frequency grids with a planted Hill bradycardia (every level twice), a pig whose response
+changes sign, a rat sweep (every level twice, plus one train that starts 2 s before the series ends),
+and a resting human recording.
 
 | Planted | Recovered |
 |---|---|
-| EC50 600 / 500 / 700 µA at 20 Hz (pigs p1, p3, p4) | 608.8 [599.0-618.4] / 496.4 [490.5-502.4] / 712.4 [703.0-721.7] µA, Hill, r² > 0.999 |
-| EC50 at 5 Hz (same pigs) | 622.2 / 547.5 / 692.1 µA |
-| Maximum change at 20 Hz: -30 bpm x 0.801 (mean over a 5 s train with a 1 s rise) = -24.0 bpm | -23.5 / -23.2 / -23.3 bpm |
-| Thresholds (5 % of 80 bpm): 400 µA at 20 Hz, 800 µA at 5 Hz | exactly these levels, all three pigs |
-| Rat: EC50 300 µA, maximum -100 x 0.801 bpm, threshold 200 µA (5 % of 380 bpm) | 297.3 [293.4-302.4] µA, -78.4 bpm, 200 µA; 5 s windows from the rat preset |
-| Pooled (3 pigs): mean EC50 600 µA | MixedLM estimates, Hill EC50 599.6 µA [496.4-712.4, bootstrap over subjects], threshold 400 µA |
-| Mean arterial pressure falls linearly with amplitude | linear chosen for 4 of 6 subject x frequency fits; once Hill with an EC50 far outside the tested range (flagged as extrapolated), once Boltzmann (EC50 1601 µA, r² 0.998): with six levels a gently curving sigmoid and a line are close in AIC |
-| Fulcrum (pig p2, 10 Hz) at 1063.8 µA | 1041.7 µA (-2.1 %, linear interpolation between 800 and 1600 µA) |
+| EC50 600 / 500 / 700 µA at 20 Hz (pigs p1, p3, p4) | 612.3 [602.0-622.7] / 500.4 [494.8-506.1] / 700.5 [683.3-718.3] µA, Hill, r² > 0.999 |
+| EC50 at 5 Hz (same pigs) | 596.3 / 482.8 / 736.7 µA (intervals contain the planted values) |
+| Maximum change at 20 Hz: -30 bpm x 0.801 (mean over a 5 s train with a 1 s rise) = -24.0 bpm | -23.5 / -23.3 / -23.4 bpm |
+| Thresholds (5 % of 80 bpm): 400 µA at 20 Hz, 800 µA at 5 Hz | exactly these levels, all three pigs, `bracketed` |
+| Rat: EC50 300 µA, maximum -100 x 0.801 bpm, threshold 200 µA (5 % of 380 bpm) | 300.7 [297.8-303.6] µA, -79.1 bpm, 200 µA; 5 s windows from the rat preset |
+| Rat edge train (series ends 2 s into it) | response window 40 % valid: left out |
+| Pooled (3 pigs): mean EC50 600 µA | MixedLM level estimates, weighted Hill fit: EC50 598.6 µA [533.6-671.4], threshold 400 µA, n = 6 levels |
+| Mean arterial pressure falls linearly with amplitude | linear chosen in all 6 subject x frequency fits and both pooled fits |
+| Fulcrum (pig p2, 10 Hz) at 1063.8 µA | 1042.7 µA [1038.6-1046.8] (-2.0 %: linear interpolation between 800 and 1600 µA is biased, and the interval covers only the train-to-train noise); the group's linear fit is blanked |
 | Resting recording, physio-import's markers file | skipped, not read |
 
 **Discover 349** (pig sub-2, ECG-derived `hr_bpm` from ecg-hrv; 20 trains, 50-2500 µA x 2-30 Hz, 5 s):
