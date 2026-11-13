@@ -1,0 +1,568 @@
+cff-version: 1.2.0
+message: If you use this app, please cite it and the works it builds on, listed under references.
+type: software
+title: stim-dose-response
+abstract: 'Physiological responses to nerve stimulation and their dose-response, for any species and protocol: baseline,
+  during and after each stimulation train for every heart-rate, blood-pressure and respiration series (or any series.csv
+  of the same shape); change, peak change, time to peak and recovery; dose-response per subject and pooled (subject
+  as a random effect, statsmodels MixedLM) with Hill, Boltzmann, linear or no dependence chosen by AIC (Akaike 1974),
+  thresholds, EC50 and bootstrap confidence intervals (Efron 1979); amplitude x frequency response surfaces; and
+  the amplitude where the heart-rate response changes sign, after the neural fulcrum of Ardell et al. (2017).'
+authors:
+- name: Pennsieve (University of Pennsylvania)
+contact:
+- given-names: Joost
+  family-names: Wagenaar
+  orcid: https://orcid.org/0009-0004-5925-5451
+  affiliation: University of Pennsylvania
+repository-code: https://github.com/pennsieve-apps/stim-dose-response
+license: Apache-2.0
+keywords:
+- physiology
+- autonomic
+- cardiovascular
+- neuromodulation
+- nerve-stimulation
+- vagus-nerve-stimulation
+- dose-response
+- heart-rate
+- blood-pressure
+- neural-fulcrum
+references:
+- type: article
+  title: 'Defining the neural fulcrum for chronic vagus nerve stimulation: implications for integrated cardiac control'
+  authors:
+  - family-names: Ardell
+    given-names: Jeffrey L.
+  - family-names: Nier
+    given-names: Heath
+  - family-names: Hammer
+    given-names: Matthew
+  - family-names: Southerland
+    given-names: E. Marie
+  - family-names: Ardell
+    given-names: Christopher L.
+  - family-names: Beaumont
+    given-names: Eric
+  - family-names: KenKnight
+    given-names: Bruce H.
+  - family-names: Armour
+    given-names: J. Andrew
+  year: 2017
+  journal: The Journal of Physiology
+  volume: 595
+  issue: '22'
+  start: '6887'
+  end: '6903'
+  doi: 10.1113/jp274678
+  identifiers:
+  - type: other
+    value: '28862330'
+- type: article
+  title: 'SciPy 1.0: fundamental algorithms for scientific computing in Python'
+  authors:
+  - family-names: Virtanen
+    given-names: Pauli
+  - family-names: Gommers
+    given-names: Ralf
+  - family-names: Oliphant
+    given-names: Travis E.
+  - family-names: Haberland
+    given-names: Matt
+  - family-names: Reddy
+    given-names: Tyler
+  - family-names: Cournapeau
+    given-names: David
+  - family-names: Burovski
+    given-names: Evgeni
+  - family-names: Peterson
+    given-names: Pearu
+  - family-names: Weckesser
+    given-names: Warren
+  - family-names: Bright
+    given-names: Jonathan
+  - family-names: van der Walt
+    given-names: Stéfan J.
+  - family-names: Brett
+    given-names: Matthew
+  - family-names: Wilson
+    given-names: Joshua
+  - family-names: Millman
+    given-names: K. Jarrod
+  - family-names: Mayorov
+    given-names: Nikolay
+  - family-names: Nelson
+    given-names: Andrew R. J.
+  - family-names: Jones
+    given-names: Eric
+  - family-names: Kern
+    given-names: Robert
+  - family-names: Larson
+    given-names: Eric
+  - family-names: Carey
+    given-names: C J
+  - family-names: Polat
+    given-names: İlhan
+  - family-names: Feng
+    given-names: Yu
+  - family-names: Moore
+    given-names: Eric W.
+  - family-names: VanderPlas
+    given-names: Jake
+  - family-names: Laxalde
+    given-names: Denis
+  - family-names: Perktold
+    given-names: Josef
+  - family-names: Cimrman
+    given-names: Robert
+  - family-names: Henriksen
+    given-names: Ian
+  - family-names: Quintero
+    given-names: E. A.
+  - family-names: Harris
+    given-names: Charles R.
+  - family-names: Archibald
+    given-names: Anne M.
+  - family-names: Ribeiro
+    given-names: Antônio H.
+  - family-names: Pedregosa
+    given-names: Fabian
+  - family-names: van Mulbregt
+    given-names: Paul
+  - name: SciPy 1.0 Contributors
+  - family-names: Vijaykumar
+    given-names: Aditya
+  - family-names: Bardelli
+    given-names: Alessandro Pietro
+  - family-names: Rothberg
+    given-names: Alex
+  - family-names: Hilboll
+    given-names: Andreas
+  - family-names: Kloeckner
+    given-names: Andreas
+  - family-names: Scopatz
+    given-names: Anthony
+  - family-names: Lee
+    given-names: Antony
+  - family-names: Rokem
+    given-names: Ariel
+  - family-names: Woods
+    given-names: C. Nathan
+  - family-names: Fulton
+    given-names: Chad
+  - family-names: Masson
+    given-names: Charles
+  - family-names: Häggström
+    given-names: Christian
+  - family-names: Fitzgerald
+    given-names: Clark
+  - family-names: Nicholson
+    given-names: David A.
+  - family-names: Hagen
+    given-names: David R.
+  - family-names: Pasechnik
+    given-names: Dmitrii V.
+  - family-names: Olivetti
+    given-names: Emanuele
+  - family-names: Martin
+    given-names: Eric
+  - family-names: Wieser
+    given-names: Eric
+  - family-names: Silva
+    given-names: Fabrice
+  - family-names: Lenders
+    given-names: Felix
+  - family-names: Wilhelm
+    given-names: Florian
+  - family-names: Young
+    given-names: G.
+  - family-names: Price
+    given-names: Gavin A.
+  - family-names: Ingold
+    given-names: Gert-Ludwig
+  - family-names: Allen
+    given-names: Gregory E.
+  - family-names: Lee
+    given-names: Gregory R.
+  - family-names: Audren
+    given-names: Hervé
+  - family-names: Probst
+    given-names: Irvin
+  - family-names: Dietrich
+    given-names: Jörg P.
+  - family-names: Silterra
+    given-names: Jacob
+  - family-names: Webber
+    given-names: James T
+  - family-names: Slavič
+    given-names: Janko
+  - family-names: Nothman
+    given-names: Joel
+  - family-names: Buchner
+    given-names: Johannes
+  - family-names: Kulick
+    given-names: Johannes
+  - family-names: Schönberger
+    given-names: Johannes L.
+  - family-names: de Miranda Cardoso
+    given-names: José Vinícius
+  - family-names: Reimer
+    given-names: Joscha
+  - family-names: Harrington
+    given-names: Joseph
+  - family-names: Rodríguez
+    given-names: Juan Luis Cano
+  - family-names: Nunez-Iglesias
+    given-names: Juan
+  - family-names: Kuczynski
+    given-names: Justin
+  - family-names: Tritz
+    given-names: Kevin
+  - family-names: Thoma
+    given-names: Martin
+  - family-names: Newville
+    given-names: Matthew
+  - family-names: Kümmerer
+    given-names: Matthias
+  - family-names: Bolingbroke
+    given-names: Maximilian
+  - family-names: Tartre
+    given-names: Michael
+  - family-names: Pak
+    given-names: Mikhail
+  - family-names: Smith
+    given-names: Nathaniel J.
+  - family-names: Nowaczyk
+    given-names: Nikolai
+  - family-names: Shebanov
+    given-names: Nikolay
+  - family-names: Pavlyk
+    given-names: Oleksandr
+  - family-names: Brodtkorb
+    given-names: Per A.
+  - family-names: Lee
+    given-names: Perry
+  - family-names: McGibbon
+    given-names: Robert T.
+  - family-names: Feldbauer
+    given-names: Roman
+  - family-names: Lewis
+    given-names: Sam
+  - family-names: Tygier
+    given-names: Sam
+  - family-names: Sievert
+    given-names: Scott
+  - family-names: Vigna
+    given-names: Sebastiano
+  - family-names: Peterson
+    given-names: Stefan
+  - family-names: More
+    given-names: Surhud
+  - family-names: Pudlik
+    given-names: Tadeusz
+  - family-names: Oshima
+    given-names: Takuya
+  - family-names: Pingel
+    given-names: Thomas J.
+  - family-names: Robitaille
+    given-names: Thomas P.
+  - family-names: Spura
+    given-names: Thomas
+  - family-names: Jones
+    given-names: Thouis R.
+  - family-names: Cera
+    given-names: Tim
+  - family-names: Leslie
+    given-names: Tim
+  - family-names: Zito
+    given-names: Tiziano
+  - family-names: Krauss
+    given-names: Tom
+  - family-names: Upadhyay
+    given-names: Utkarsh
+  - family-names: Halchenko
+    given-names: Yaroslav O.
+  - family-names: Vázquez-Baeza
+    given-names: Yoshiki
+  year: 2020
+  journal: Nature Methods
+  volume: 17
+  issue: '3'
+  start: '261'
+  end: '272'
+  doi: 10.1038/s41592-019-0686-2
+  identifiers:
+  - type: other
+    value: '32015543'
+- type: conference-paper
+  title: 'Statsmodels: Econometric and Statistical Modeling with Python'
+  authors:
+  - family-names: Seabold
+    given-names: Skipper
+  - family-names: Perktold
+    given-names: Josef
+  year: 2010
+  start: '92'
+  end: '96'
+  doi: 10.25080/majora-92bf1922-011
+  collection-title: Proceedings of the Python in Science Conference
+- type: article
+  title: A new look at the statistical model identification
+  authors:
+  - family-names: Akaike
+    given-names: H.
+  year: 1974
+  journal: IEEE Transactions on Automatic Control
+  volume: 19
+  issue: '6'
+  start: '716'
+  end: '723'
+  doi: 10.1109/tac.1974.1100705
+- type: article
+  title: 'Bootstrap Methods: Another Look at the Jackknife'
+  authors:
+  - family-names: Efron
+    given-names: B.
+  year: 1979
+  journal: The Annals of Statistics
+  volume: 7
+  issue: '1'
+  start: '1'
+  end: '26'
+  doi: 10.1214/aos/1176344552
+- type: article
+  title: Array programming with NumPy
+  authors:
+  - family-names: Harris
+    given-names: Charles R.
+  - family-names: Millman
+    given-names: K. Jarrod
+  - family-names: van der Walt
+    given-names: Stéfan J.
+  - family-names: Gommers
+    given-names: Ralf
+  - family-names: Virtanen
+    given-names: Pauli
+  - family-names: Cournapeau
+    given-names: David
+  - family-names: Wieser
+    given-names: Eric
+  - family-names: Taylor
+    given-names: Julian
+  - family-names: Berg
+    given-names: Sebastian
+  - family-names: Smith
+    given-names: Nathaniel J.
+  - family-names: Kern
+    given-names: Robert
+  - family-names: Picus
+    given-names: Matti
+  - family-names: Hoyer
+    given-names: Stephan
+  - family-names: van Kerkwijk
+    given-names: Marten H.
+  - family-names: Brett
+    given-names: Matthew
+  - family-names: Haldane
+    given-names: Allan
+  - family-names: del Río
+    given-names: Jaime Fernández
+  - family-names: Wiebe
+    given-names: Mark
+  - family-names: Peterson
+    given-names: Pearu
+  - family-names: Gérard-Marchant
+    given-names: Pierre
+  - family-names: Sheppard
+    given-names: Kevin
+  - family-names: Reddy
+    given-names: Tyler
+  - family-names: Weckesser
+    given-names: Warren
+  - family-names: Abbasi
+    given-names: Hameer
+  - family-names: Gohlke
+    given-names: Christoph
+  - family-names: Oliphant
+    given-names: Travis E.
+  year: 2020
+  journal: Nature
+  volume: 585
+  issue: '7825'
+  start: '357'
+  end: '362'
+  doi: 10.1038/s41586-020-2649-2
+  identifiers:
+  - type: other
+    value: '32939066'
+- type: conference-paper
+  title: Data Structures for Statistical Computing in Python
+  authors:
+  - family-names: McKinney
+    given-names: Wes
+  year: 2010
+  start: '56'
+  end: '61'
+  doi: 10.25080/majora-92bf1922-00a
+  collection-title: Proceedings of the Python in Science Conference
+- type: article
+  title: 'Matplotlib: A 2D Graphics Environment'
+  authors:
+  - family-names: Hunter
+    given-names: John D.
+  year: 2007
+  journal: Computing in Science & Engineering
+  volume: 9
+  issue: '3'
+  start: '90'
+  end: '95'
+  doi: 10.1109/mcse.2007.55
+- type: article
+  title: Quantitative estimation of nerve fiber engagement by vagus nerve stimulation using physiological markers
+  authors:
+  - family-names: Chang
+    given-names: Yao-Chuan
+  - family-names: Cracchiolo
+    given-names: Marina
+  - family-names: Ahmed
+    given-names: Umair
+  - family-names: Mughrabi
+    given-names: Ibrahim
+  - family-names: Gabalski
+    given-names: Arielle
+  - family-names: Daytz
+    given-names: Anna
+  - family-names: Rieth
+    given-names: Loren
+  - family-names: Becker
+    given-names: Lance
+  - family-names: Datta-Chaudhuri
+    given-names: Timir
+  - family-names: Al-Abed
+    given-names: Yousef
+  - family-names: Zanos
+    given-names: Theodoros P.
+  - family-names: Zanos
+    given-names: Stavros
+  year: 2020
+  journal: Brain Stimulation
+  volume: 13
+  issue: '6'
+  start: '1617'
+  end: '1630'
+  doi: 10.1016/j.brs.2020.09.002
+  identifiers:
+  - type: other
+    value: '32956868'
+- type: article
+  title: Measuring and modeling the effects of vagus nerve stimulation on heart rate and laryngeal muscles
+  authors:
+  - family-names: Huffman
+    given-names: William J.
+  - family-names: Musselman
+    given-names: Eric D.
+  - family-names: Pelot
+    given-names: Nicole A.
+  - family-names: Grill
+    given-names: Warren M.
+  year: 2023
+  journal: Bioelectronic Medicine
+  volume: 9
+  issue: '1'
+  start: '3'
+  doi: 10.1186/s42234-023-00107-4
+  identifiers:
+  - type: other
+    value: '36797733'
+- type: article
+  title: The Neurodata Without Borders ecosystem for neurophysiological data science
+  authors:
+  - family-names: Rübel
+    given-names: Oliver
+  - family-names: Tritt
+    given-names: Andrew
+  - family-names: Ly
+    given-names: Ryan
+  - family-names: Dichter
+    given-names: Benjamin K
+  - family-names: Ghosh
+    given-names: Satrajit
+  - family-names: Niu
+    given-names: Lawrence
+  - family-names: Baker
+    given-names: Pamela
+  - family-names: Soltesz
+    given-names: Ivan
+  - family-names: Ng
+    given-names: Lydia
+  - family-names: Svoboda
+    given-names: Karel
+  - family-names: Frank
+    given-names: Loren
+  - family-names: Bouchard
+    given-names: Kristofer E
+  year: 2022
+  journal: eLife
+  volume: 11
+  start: e78362
+  doi: 10.7554/elife.78362
+  identifiers:
+  - type: other
+    value: '36193886'
+- type: data
+  title: Influence of vagus nerve stimulation on cardiac activity in pigs
+  authors:
+  - family-names: Armitage
+    given-names: Oliver
+  - family-names: Sarkans
+    given-names: Elvijs
+  - family-names: Wernisch
+    given-names: Lorenz
+  - family-names: Fortier-Poisson
+    given-names: Pascal
+  - family-names: Berthon
+    given-names: Antonin
+  - family-names: Tessier-Larivière
+    given-names: Olivier
+  year: 2023
+  publisher:
+    name: SPARC Portal
+  doi: 10.26275/dm5l-tspb
+  url: https://doi.org/10.26275/dm5l-tspb
+- type: data
+  title: Single-electrode bidirectional control of heart rate via vagus nerve modulation in rat model
+  authors:
+  - family-names: Bender
+    given-names: Shane A
+  - family-names: Green
+    given-names: David B
+  - family-names: Thakkar
+    given-names: Varun S
+  - family-names: Zimmerman
+    given-names: Hope L
+  - family-names: Elazab
+    given-names: Mohamed
+  - family-names: Kilgore
+    given-names: Kevin L
+  - family-names: Vrabec
+    given-names: Tina L
+  year: 2026
+  publisher:
+    name: SPARC Portal
+  doi: 10.26275/5cwo-mkpz
+  url: https://doi.org/10.26275/5cwo-mkpz
+- type: software
+  title: h5py
+  authors:
+  - family-names: Collette
+    given-names: Andrew
+  url: https://github.com/h5py/h5py
+  repository-code: https://github.com/h5py/h5py
+  license: BSD-3-Clause
+- type: software
+  title: patsy
+  authors:
+  - name: Patsy Developers
+  url: https://github.com/pydata/patsy
+  repository-code: https://github.com/pydata/patsy
+  license: BSD-2-Clause

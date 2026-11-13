@@ -1,0 +1,280 @@
+# stim-dose-response
+
+How heart rate, blood pressure, breathing (or any other beat- or breath-derived series) respond to
+each nerve stimulation, and how the response grows with the stimulation dose. The dose-response
+analysis is Pennsieve's own implementation of published methods, and the credit for those methods
+is their authors': the **neural fulcrum** is the concept of **Jeffrey L. Ardell, Heath Nier, Matthew
+Hammer, E. Marie Southerland, Christopher L. Ardell, Eric Beaumont, Bruce H. KenKnight and J. Andrew
+Armour** ([Ardell et al. 2017, J Physiol](https://doi.org/10.1113/JP274678));
+model selection uses the information criterion of **H. Akaike** ([Akaike 1974](https://doi.org/10.1109/TAC.1974.1100705)),
+confidence intervals the bootstrap of **B. Efron** ([Efron 1979](https://doi.org/10.1214/aos/1176344552)).
+The curve fits run on **SciPy** (`scipy.optimize.curve_fit`; Pauli Virtanen, Ralf Gommers, Travis E.
+Oliphant and the SciPy contributors, [github.com/scipy/scipy](https://github.com/scipy/scipy),
+[Virtanen et al. 2020](https://doi.org/10.1038/s41592-019-0686-2)) and the pooled mixed model on
+**statsmodels** (Skipper Seabold, Josef Perktold and the statsmodels developers,
+[github.com/statsmodels/statsmodels](https://github.com/statsmodels/statsmodels),
+[Seabold & Perktold 2010](https://doi.org/10.25080/Majora-92bf1922-011)). Pennsieve packages these
+methods for any lab's data; it did not develop them. The demo data are **Pennsieve Discover 349**
+(pig vagus nerve stimulation over a current x frequency grid; Oliver Armitage, Elvijs Sarkans, Lorenz
+Wernisch, Pascal Fortier-Poisson, Antonin Berthon and Olivier Tessier-Larivière,
+[doi:10.26275/dm5l-tspb](https://doi.org/10.26275/dm5l-tspb)) and **Pennsieve Discover 655** (rat
+closed-loop heart-rate control by vagus stimulation and block; Shane A Bender, David B Green, Varun S
+Thakkar, Hope L Zimmerman, Mohamed Elazab, Kevin L Kilgore and Tina L Vrabec,
+[doi:10.26275/5cwo-mkpz](https://doi.org/10.26275/5cwo-mkpz)).
+
+**Research outputs.** Responses, thresholds, EC50 values and fulcrum amplitudes describe the
+recordings analysed. They are not clinical findings and not dosing recommendations.
+
+## What it does
+
+**For a physiologist.** Give it the stimulation trains that `stim-events` found and the heart-rate
+and blood-pressure series that `ecg-hrv` and `bp-resp` computed. For every train it measures each
+signal in a baseline window just before the train, during the train and just after it, and reports
+the change, the percent change, the largest change (and when it happened), and how long the signal
+took to come back. Trains that are too close to another train, or whose signal is mostly artefact,
+are kept in the table but left out of the curves. For every parameter that was varied with the
+others held fixed (e.g. current at each frequency), it plots the response against the parameter,
+fits a sigmoid (Hill or Boltzmann), a straight line, or no dependence, whichever the data support
+best, and reports the **threshold** (the lowest level whose mean response clearly exceeds the
+baseline noise), the **EC50** (the level giving half of the maximum response) and the maximum, with
+95 % confidence intervals. When both amplitude and frequency were varied it draws the **response
+surface**; when heart rate goes up at low amplitudes and down at high ones it reports the amplitude
+where the response changes sign (the **neural fulcrum**, see the caveat below). With three or more
+animals of one species it also fits the pooled curve with the animal as a random effect.
+
+**For a data scientist.** Input: `events.tsv` (one row per train with its parameters) and any number
+of long-format `series.csv` (`recording_id, time_s, variable, value, valid`) on a regular grid.
+Every variable of every series is analysed, so a new upstream step joins by writing the same shape.
+Per (train, variable): windowed means of valid samples; delta/pct change; peak of a centred moving
+mean; recovery to within a fraction of the peak. Per (subject, trial type, x, group of the other
+parameters, variable): four models fitted by bounded least squares to the per-train
+deltas, chosen by AIC; threshold from level means against a data-driven criterion; residual-bootstrap
+CIs. Pooled (>= 3 subjects of one species): level estimates from `MixedLM(delta ~ 0 + C(level), groups=subject)`,
+then the same model choice on those estimates and a bootstrap over subjects. Fulcrum: the first
+sign change of the level means between levels that exceed the criterion in opposite directions,
+linearly interpolated.
+
+## Ports
+
+| Port | Direction | Content |
+|---|---|---|
+| `events` | input, required | stim-events' `events` output: `stim-events/events.tsv`. physio-import's own `events.tsv` (raw markers, next to `recordings.csv`) is never read. |
+| `hrv` | input, optional | ecg-hrv's `hrv` output (`series.csv`: `hr_bpm`, `rr_ms`, `hr_device_bpm`), or any `series.csv` |
+| `bp` | input, optional | bp-resp's `bp` output (`series.csv`: `sbp_mmhg`, `dbp_mmhg`, `map_mmhg`, `pp_mmhg`, `resp_rate_bpm`, `resp_amp`), or any `series.csv` |
+| `physio` | input, optional | physio-import's `physio` output: `recordings.csv` (subject, species) and NWB files (one raw-trace figure per recording) |
+| `responses` | output | `stim-dose-response/` (below) |
+
+At least one `series.csv` is needed. Files are found by name and content, recursively (also when all
+ports are merged side by side). A recording with trains but no series (e.g. no ECG), or with series
+but no trains (a resting recording), is listed as skipped in `provenance.json`; the step still exits 0.
+
+## Parameters
+
+| Parameter | Default | What it does |
+|---|---|---|
+| `SPECIES` | `auto` | Species preset for the windows; `auto` = from `recordings.csv` or the upstream steps' `provenance.json`, else `human` |
+| `BASELINE_S` | `auto` | Baseline window before each train (s); `auto` = species preset |
+| `AFTER_S` | `auto` | Window after each train (s); `auto` = species preset |
+| `RESPONSE_WINDOW` | `train` | `train` (mean over the train), `peak` (mean over `PEAK_WINDOW_S` around the largest change), or `fixed:<a>,<b>` (seconds after onset) |
+| `PEAK_WINDOW_S` | `2` | Moving-mean width for the peak, time to peak and recovery |
+| `RECOVERY_FRACTION` | `0.1` | Recovered = back within this fraction of the peak change (0.1 = 90 % recovered) |
+| `MIN_VALID` | `0.8` | Trains with a smaller share of valid samples in their baseline and response windows are left out of the fits |
+| `OVERLAP` | `exclude` | `exclude`: a train whose baseline or response window overlaps another train is left out of the fits; `clip`: the baseline starts where the previous train ended, and the train is left out only when less than half of `BASELINE_S` remains |
+| `THRESHOLD_CRITERION` | `auto` | `auto` = the larger of 5 % of baseline and 3 SD of the train-to-train baseline variability; or `pct:<n>`, `sd:<k>`, `abs:<value>` |
+| `MIN_LEVELS` | `4` | Fewest distinct levels for a curve fit (fewer: level means and threshold only) |
+| `MODELS` | `hill,boltzmann,linear,none` | Models compared by AIC (`none` always included) |
+| `N_BOOT` | `500` | Bootstrap resamples for the CIs; `0` = none |
+| `SEED` | `42` | Bootstrap seed |
+| `VARIABLES` | `all` | Variables to analyse (comma list) |
+| `FIGURE_VARIABLES` | `auto` | Variables with figures: `auto` = `hr_bpm` (else `hr_device_bpm`), `map_mmhg`, `resp_rate_bpm` when present; `all`; or a list |
+| `FIGURES` | `true` | Write figures |
+| `THREADS` | `0` | BLAS threads; 0 = from the container's CPU quota |
+
+### Species presets
+
+Only the windows depend on the species. No publication prescribes them; they follow a rule of this
+app: the window must hold at least two breaths and about ten beats at resting rates, so the
+respiratory oscillation of heart rate and pressure largely averages out. Each value can be
+overridden.
+
+| Species | `BASELINE_S` | `AFTER_S` | Source |
+|---|---|---|---|
+| human, dog | 10 | 10 | design rule above |
+| pig | 10 | 10 | design rule; equals the 10 s recorded before and after each train in Discover 349 (Armitage et al.) |
+| rabbit, rat, mouse | 5 | 5 | design rule above (fast breathing and heart rates) |
+
+## Outputs (`stim-dose-response/`)
+
+| File | Columns |
+|---|---|
+| `responses.csv` | `recording_id, event_id, variable, baseline, during, after, delta, pct_change, peak_delta, time_to_peak_s, recovery_s, valid_fraction`, then `subject, unit, series_source, onset, duration, trial_type, included, exclusion_reason, window_start_s, window_end_s, baseline_sd`, then the train's parameters (`amplitude, amplitude_unit, pulse_width_us, frequency_hz, train_duration_s, ..., condition` and any extra parameter column of events.tsv) |
+| `fits.csv` | `subject, recording_id` (`pooled` for pooled rows; `|`-joined when a subject has several recordings), `variable, x, x_unit, group` (the other parameters held fixed, only those that vary), `model` (`hill`/`boltzmann`/`linear`/`none`), `threshold, threshold_criterion, ec50, top, bottom, slope, r2, n, aic`, then `unit, trial_type, n_levels, n_subjects, criterion_value, direction, ec50_ci_low, ec50_ci_high, top_ci_low, top_ci_high, slope_ci_low, slope_ci_high, aic_hill, aic_boltzmann, aic_linear, aic_none, levels, level_means, species, note` |
+| `surface.csv` | `subject, variable, amplitude, frequency_hz, mean_delta, sd, n, group, trial_type, unit, species` (when amplitude and frequency both vary; pooled rows average the subjects' cell means) |
+| `fulcrum.csv` | `subject, variable, frequency_hz, amplitude_at_fulcrum, method, ci_low, ci_high, group, recording_id, levels, level_means, species, note` |
+| `features.csv` | `recording_id, channel, feature, value`: `dose_n_trains`, `dose_n_trains_included`, `resp_max_delta_<variable>`, `dose_threshold_<variable>_<x>[_<group>]`, `dose_ec50_...`, `fulcrum_amplitude_<variable>[_<group>]` |
+| `figures/` | `<subject>_<variable>_timecourse.png`, `_dose_response.png`, `_surface.png`; `pooled-<species>_<variable>_...`; `<recording_id>_raw.png` (with the `physio` port) |
+| `summary.json` | headline numbers per recording and per subject, captioned figures and tables, warnings, and a `notice` (research outputs; the fulcrum caveat when a fulcrum is reported) |
+| `provenance.json` | the shared keys of the physiology apps, plus `windows` (per recording: species, windows and where they came from) and `species_presets` |
+
+Model details: Hill `y = top·xⁿ/(ec50ⁿ + xⁿ)` and Boltzmann `y = top/(1 + e^((ec50 − x)/slope))` with
+the bottom fixed at 0 (the response is a change from baseline, so no stimulation means no change);
+linear `y = a + b·x`; none `y = c`. AIC = n·ln(RSS/n) + 2(k + 1). A model is only compared when it
+leaves at least two residual degrees of freedom. `top` is the fitted maximum change (for `linear`,
+the fitted value at the highest level; `bottom` at the lowest). An EC50 at the fit bounds is left
+empty; one outside the tested range is kept and flagged as extrapolated in `note`.
+
+**Neural fulcrum caveat.** Ardell et al. (2017) defined the neural fulcrum for chronic, duty-cycled
+vagus nerve stimulation in conscious animals: the operating point where stimulation-evoked
+tachycardia (afferent-driven) and bradycardia (efferent-driven) balance. Here it is only the
+amplitude where the heart-rate response to the trains in a recording changes sign at a fixed
+frequency. In acute or anaesthetised preparations with short trains it is a descriptive crossing
+point, not the chronic-therapy fulcrum. `summary.json` carries this caveat as its `notice` whenever a
+fulcrum is reported.
+
+## Runtime
+
+`cpu: 512`, `memory: 1024`, `timeoutSeconds: 900`, `computeTypes: [standard]` (Lambda-eligible).
+Measured in Docker, **amd64 emulation on an M-series Mac**, run as Lambda runs it (`--read-only
+--user 65534:65534 --tmpfs /tmp`, `--cpus 1 --memory 2g`):
+
+| Input | Trains x variables | Peak memory (cgroup) | Wall time |
+|---|---|---|---|
+| Discover 349, sub-2 (ecg-hrv series: `hr_bpm`, `rr_ms`, `hr_device_bpm`) | 20 x 3 | 197 MB | 3.7 s |
+| Discover 349, `OVERLAP=clip` | 20 x 3 | 193 MB | 14.5 s (more curves, so more bootstrap fits) |
+| Discover 655, 3 recordings (`hr_bpm`, `rr_ms`) | 16 x 2 | 214 MB | 3.2 s |
+| Synthetic fixture (5 recordings, 132 fits, 500 bootstrap resamples each) | 54 x 2-4 | 228 MB | 24.8 s |
+
+Time grows with the number of fits x `N_BOOT`; memory with the length of the series (all series of a
+run are held in memory: about 1 MB per hour of recording per variable at 4 Hz). Image: 616 MB
+unpacked (147 MB compressed).
+
+## Validation
+
+**Synthetic fixture** (`tests/make_fixture.py`, asserted by `tests/test_processor.py`): pig
+amplitude x frequency grids with a planted Hill bradycardia, a pig whose response changes sign, a rat
+sweep, and a resting human recording.
+
+| Planted | Recovered |
+|---|---|
+| EC50 600 / 500 / 700 µA at 20 Hz (pigs p1, p3, p4) | 608.8 [599.0-618.4] / 496.4 [490.5-502.4] / 712.4 [703.0-721.7] µA, Hill, r² > 0.999 |
+| EC50 at 5 Hz (same pigs) | 622.2 / 547.5 / 692.1 µA |
+| Maximum change at 20 Hz: -30 bpm x 0.801 (mean over a 5 s train with a 1 s rise) = -24.0 bpm | -23.5 / -23.2 / -23.3 bpm |
+| Thresholds (5 % of 80 bpm): 400 µA at 20 Hz, 800 µA at 5 Hz | exactly these levels, all three pigs |
+| Rat: EC50 300 µA, maximum -100 x 0.801 bpm, threshold 200 µA (5 % of 380 bpm) | 297.3 [293.4-302.4] µA, -78.4 bpm, 200 µA; 5 s windows from the rat preset |
+| Pooled (3 pigs): mean EC50 600 µA | MixedLM estimates, Hill EC50 599.6 µA [496.4-712.4, bootstrap over subjects], threshold 400 µA |
+| Mean arterial pressure falls linearly with amplitude | linear chosen for 4 of 6 subject x frequency fits; once Hill with an EC50 far outside the tested range (flagged as extrapolated), once Boltzmann (EC50 1601 µA, r² 0.998): with six levels a gently curving sigmoid and a line are close in AIC |
+| Fulcrum (pig p2, 10 Hz) at 1063.8 µA | 1041.7 µA (-2.1 %, linear interpolation between 800 and 1600 µA) |
+| Resting recording, physio-import's markers file | skipped, not read |
+
+**Discover 349** (pig sub-2, ECG-derived `hr_bpm` from ecg-hrv; 20 trains, 50-2500 µA x 2-30 Hz, 5 s):
+with `OVERLAP=exclude`, 14 of 20 trains are used (6 start less than 10 s after the previous train, as
+stim-events' QC also lists). Baseline heart rate about 70 bpm; the threshold criterion is 5 % of
+baseline (3.5 bpm; the train-to-train baseline SD is 0.6 bpm). Responses are small and mostly
+tachycardic at 500-1500 µA (+4.1 to +5.3 bpm at 10-30 Hz), turning to bradycardia at 2500 µA and 20-30 Hz
+(-1.9 and -5.3 bpm). Thresholds: 500 µA at 30 Hz, 1000 µA at 10 Hz, 1500 µA at 20 Hz, none at 2 Hz.
+With one train per level and four or five levels, the curves are poorly determined (linear at 2 and
+30 Hz, r² 0.75 and 0.37; too few levels at 10 and 20 Hz); `OVERLAP=clip` keeps 19 of 20 trains and
+gives five levels at 10 Hz, where the response rises and then falls again (Boltzmann chosen, r² 0.58:
+no monotonic curve describes it). At 30 Hz the response changes sign between 1500
+and 2500 µA: crossing at **1751 µA** from the ECG-derived heart rate and **1714 µA** from the device
+heart-rate channel (`hr_device_bpm`), which agree; no CI (one train per level). This is a crossing
+point in an anaesthetised acute preparation, not the chronic fulcrum of Ardell et al.
+
+**Discover 655** (rat, closed-loop heart-rate control; `hr_bpm` from ecg-hrv): the controller's trains
+on two electrodes overlap almost everywhere, so only 4 of 16 trains are free of overlap. The
+open-loop perturbation trains (3.78 a.u. on the proximal electrode) lowered heart rate by 53.5 bpm
+(44 s train, gain 5 session, -17 %) and 40.5 bpm (61 s, gain 10, -13 %) from about 310 bpm and
+recovered within 7-8 s; 0.1 s bursts changed nothing (+2.0 and +0.2 bpm). Kilohertz block epochs
+(kept in `responses.csv`, all overlapping) raised heart rate by 10-19 bpm. The amplitude barely
+varies, so there is no dose-response curve here: the dataset tests the overlap and block handling,
+long trains and the rat preset.
+
+## Limitations
+
+- The response is a mean change over a window: it cannot separate a direct effect of the train from
+  a slower drift, and with short gaps between trains the previous train's after-effect sits in the
+  next baseline. The table flags overlap, not after-effects; use `MIN_GAP_S` in stim-events and the
+  time-course figures to judge it.
+- With one train per level (common in grid protocols) a curve rests on 4-6 points: model choice is
+  fragile, the residual-bootstrap CIs are conditional on the chosen model, and thresholds are only as
+  fine as the tested levels. Repeat trains per level where possible.
+- AIC is used as specified; with very few trains a sigmoid can win by a small margin. The `aic_*`
+  columns show every model's score.
+- The threshold is the lowest level whose mean change exceeds the criterion; it is not a statistical
+  test and does not correct for testing several levels.
+- Anaesthesia changes autonomic tone and responses to vagus stimulation; values from anaesthetised
+  preparations (Discover 349) do not transfer to conscious animals or patients.
+- Validated on synthetic data with known answers, on one pig (Discover 349) and one rat (Discover
+  655). Not validated on human, dog, rabbit or mouse recordings; the windows for those species are
+  presets, not measured choices.
+- Uncalibrated pressures arrive from bp-resp without absolute values; their changes are relative.
+- The neural fulcrum here is a crossing point, with the caveat above.
+
+## Licences
+
+Apache-2.0 (this app). Bundled packages and their licences: `THIRD_PARTY.md` (all BSD, MIT, PSF-style
+or Apache). No licence notice applies to the outputs. The demo datasets are CC BY 4.0; cite them when
+you use their results.
+
+## Citations
+
+Please cite these works if you use this app. Verified on Crossref/DataCite and PubMed; full author
+lists in CITATION.cff.
+
+Methods:
+
+- Ardell JL, Nier H, Hammer M, Southerland EM, Ardell CL, Beaumont E, KenKnight BH, Armour JA (2017).
+  Defining the neural fulcrum for chronic vagus nerve stimulation: implications for integrated cardiac
+  control. *The Journal of Physiology* 595(22):6887-6903. doi:10.1113/JP274678. PMID 28862330.
+- Akaike H (1974). A new look at the statistical model identification. *IEEE Transactions on
+  Automatic Control* 19(6):716-723. doi:10.1109/TAC.1974.1100705.
+- Efron B (1979). Bootstrap Methods: Another Look at the Jackknife. *The Annals of Statistics*
+  7(1):1-26. doi:10.1214/aos/1176344552.
+
+Software:
+
+- Virtanen P, Gommers R, Oliphant TE, et al. (2020). SciPy 1.0: fundamental algorithms for scientific
+  computing in Python. *Nature Methods* 17(3):261-272. doi:10.1038/s41592-019-0686-2. PMID 32015543.
+- Seabold S, Perktold J (2010). Statsmodels: Econometric and Statistical Modeling with Python.
+  *Proceedings of the Python in Science Conference* 92-96. doi:10.25080/Majora-92bf1922-011.
+- Harris CR, Millman KJ, van der Walt SJ, et al. (2020). Array programming with NumPy. *Nature*
+  585(7825):357-362. doi:10.1038/s41586-020-2649-2. PMID 32939066.
+- McKinney W (2010). Data Structures for Statistical Computing in Python. *Proceedings of the Python
+  in Science Conference* 56-61. doi:10.25080/Majora-92bf1922-00a.
+- Hunter JD (2007). Matplotlib: A 2D Graphics Environment. *Computing in Science & Engineering*
+  9(3):90-95. doi:10.1109/MCSE.2007.55.
+- Rübel O, Tritt A, Ly R, et al. (2022). The Neurodata Without Borders ecosystem for
+  neurophysiological data science. *eLife* 11:e78362. doi:10.7554/eLife.78362. PMID 36193886.
+- h5py, Andrew Collette and contributors, https://github.com/h5py/h5py; patsy, Patsy Developers,
+  https://github.com/pydata/patsy.
+
+Background (vagus nerve stimulation dose-response with physiological markers):
+
+- Chang YC, Cracchiolo M, Ahmed U, et al. (2020). Quantitative estimation of nerve fiber engagement by
+  vagus nerve stimulation using physiological markers. *Brain Stimulation* 13(6):1617-1630.
+  doi:10.1016/j.brs.2020.09.002. PMID 32956868.
+- Huffman WJ, Musselman ED, Pelot NA, Grill WM (2023). Measuring and modeling the effects of vagus
+  nerve stimulation on heart rate and laryngeal muscles. *Bioelectronic Medicine* 9:3.
+  doi:10.1186/s42234-023-00107-4. PMID 36797733.
+
+Data:
+
+- Armitage O, Sarkans E, Wernisch L, Fortier-Poisson P, Berthon A, Tessier-Larivière O (2023).
+  Influence of vagus nerve stimulation on cardiac activity in pigs. Pennsieve Discover / SPARC
+  Portal. doi:10.26275/dm5l-tspb.
+- Bender SA, Green DB, Thakkar VS, Zimmerman HL, Elazab M, Kilgore KL, Vrabec TL (2026).
+  Single-electrode bidirectional control of heart rate via vagus nerve modulation in rat model.
+  Pennsieve Discover / SPARC Portal. doi:10.26275/5cwo-mkpz.
+
+## Acknowledgements
+
+The SciPy, NumPy, pandas, statsmodels, Matplotlib and h5py projects and their contributors. The demo
+datasets were shared on Pennsieve Discover by their authors (listed above) under CC BY 4.0.
+
+## Development
+
+    python3.12 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
+    make test PYTHON=.venv/bin/python        # pytest on the synthetic fixture (no Docker)
+    make run                                  # Docker over data/fixture into data/output
+    make lambda-check                         # read-only, any uid, HOME/TMPDIR under /tmp
+    make run-demo DEMO=../workflow-physiology/data/work/d349
