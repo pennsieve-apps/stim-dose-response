@@ -151,8 +151,8 @@ Measured in Docker, **amd64 emulation on an M-series Mac**, run as Lambda runs i
 
 | Input | Trains x variables | Peak memory (cgroup) | Wall time |
 |---|---|---|---|
-| Discover 349, sub-2 (ecg-hrv series: `hr_bpm`, `rr_ms`, `hr_device_bpm`) | 20 x 3 | 213 MB | 2.8 s |
-| Discover 655, 3 recordings (`hr_bpm`, `rr_ms`) | 16 x 2 | 236 MB | 3.1 s |
+| Discover 349, sub-2 (ecg-hrv series: `hr_bpm`, `rr_ms`, `hr_device_bpm`) | 20 x 3 | 213 MB | 3.2 s |
+| Discover 655, 3 recordings (`hr_bpm`, `rr_ms`) | 16 x 2 | 239 MB | 3.0 s |
 | Synthetic fixture (6 recordings, 132 fits) | 79 x 1-4 | 232 MB | 8.2 s |
 
 Time grows with the number of fits (and `N_BOOT` for fulcrums with repeated levels); memory with the length of the series (all series of a
@@ -196,15 +196,13 @@ anaesthetised acute preparation, not the fulcrum of Ardell et al.
 
 **Discover 655** (rat, closed-loop heart-rate control; `hr_bpm` from ecg-hrv): the controller's trains
 on two electrodes overlap almost everywhere, so only 4 of 16 trains are free of overlap. The
-open-loop perturbation trains (3.78 a.u. on the proximal electrode) lowered heart rate by 53.5 bpm
-(44 s train, gain 5 session, -17 %) and 40.5 bpm (61 s, gain 10, -13 %) from about 310 bpm and
-recovered within 7-8 s; 0.1 s bursts changed nothing (+2.0 and +0.2 bpm). Kilohertz block epochs
-(kept in `responses.csv`, all overlapping) raised heart rate by 10-19 bpm. The amplitude barely
+open-loop perturbation trains (3.78 a.u. on the proximal electrode) lowered heart rate by 54.1 bpm
+(44 s train, gain 5 session, -17 %; largest change -67.6 bpm, 38.5 s after onset) and 40.4 bpm (61 s,
+gain 10, -13 %; -51.8 bpm at 56.4 s) from about 310 bpm, and recovered within 7-8 s after the train;
+0.1 s bursts changed nothing (+1.8 and +1.7 bpm). Kilohertz block epochs (kept in `responses.csv`,
+all overlapping) raised heart rate by 10-19 bpm. The amplitude barely
 varies, so there is no dose-response curve here: the dataset tests the overlap and block handling,
-long trains and the rat preset. These numbers use the ecg-hrv heart rate of 16:25 on 2026-11-13,
-whose rat R-peak detection jumped between two QRS lobes: window means are not biased, but
-`peak_delta` and `time_to_peak_s` are, and this run should be repeated on the corrected ecg-hrv
-output.
+long trains and the rat preset.
 
 ## Limitations
 
