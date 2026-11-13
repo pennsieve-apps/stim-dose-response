@@ -1,0 +1,24 @@
+# Runtime dependencies, resolved for python:3.12.16-slim-bookworm (linux/amd64) and installed with
+# --no-deps --only-binary=:all: (every package is listed here, wheels only).
+numpy==2.5.4
+# curve_fit (Hill / Boltzmann fits with bounds)
+scipy==1.18.1
+# series.csv tables; statsmodels needs it
+pandas==3.1.1
+python-dateutil==4.0.0
+six==1.17.0
+# MixedLM (pooled fits, subject as a random effect). statsmodels 0.15 declares formulaic as a dependency
+# but needs only one of patsy or formulaic; patsy is the smaller one and MixedLM is used without formulas.
+statsmodels==0.15.0
+patsy==1.0.3
+packaging==26.3
+# NWB files (raw-trace figure), read with h5py by slice; pynwb is not needed at run time
+h5py==3.16.0
+# figures
+matplotlib==3.11.2
+contourpy==1.4.0
+cycler==0.12.1
+fonttools==4.68.0
+kiwisolver==1.5.1
+pillow==13.0.0
+pyparsing==3.3.3
