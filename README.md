@@ -151,12 +151,11 @@ Measured in Docker, **amd64 emulation on an M-series Mac**, run as Lambda runs i
 
 | Input | Trains x variables | Peak memory (cgroup) | Wall time |
 |---|---|---|---|
-| Discover 349, sub-2 (ecg-hrv series: `hr_bpm`, `rr_ms`, `hr_device_bpm`) | 20 x 3 | 197 MB | 3.7 s |
-| Discover 349, `OVERLAP=clip` | 20 x 3 | 193 MB | 14.5 s (more curves, so more bootstrap fits) |
-| Discover 655, 3 recordings (`hr_bpm`, `rr_ms`) | 16 x 2 | 214 MB | 3.2 s |
-| Synthetic fixture (5 recordings, 132 fits, 500 bootstrap resamples each) | 54 x 2-4 | 228 MB | 24.8 s |
+| Discover 349, sub-2 (ecg-hrv series: `hr_bpm`, `rr_ms`, `hr_device_bpm`) | 20 x 3 | 213 MB | 2.8 s |
+| Discover 655, 3 recordings (`hr_bpm`, `rr_ms`) | 16 x 2 | 236 MB | 3.1 s |
+| Synthetic fixture (6 recordings, 132 fits) | 79 x 1-4 | 232 MB | 8.2 s |
 
-Time grows with the number of fits x `N_BOOT`; memory with the length of the series (all series of a
+Time grows with the number of fits (and `N_BOOT` for fulcrums with repeated levels); memory with the length of the series (all series of a
 run are held in memory: about 1 MB per hour of recording per variable at 4 Hz). Image: 616 MB
 unpacked (147 MB compressed).
 
@@ -185,14 +184,15 @@ with `OVERLAP=exclude`, 14 of 20 trains are used (6 start less than 10 s after t
 stim-events' QC also lists). Baseline heart rate about 70 bpm; the threshold criterion is 5 % of
 baseline (3.5 bpm; the train-to-train baseline SD is 0.6 bpm). Responses are small and mostly
 tachycardic at 500-1500 µA (+4.1 to +5.3 bpm at 10-30 Hz), turning to bradycardia at 2500 µA and 20-30 Hz
-(-1.9 and -5.3 bpm). Thresholds: 500 µA at 30 Hz, 1000 µA at 10 Hz, 1500 µA at 20 Hz, none at 2 Hz.
-With one train per level and four or five levels, the curves are poorly determined (linear at 2 and
-30 Hz, r² 0.75 and 0.37; too few levels at 10 and 20 Hz); `OVERLAP=clip` keeps 19 of 20 trains and
-gives five levels at 10 Hz, where the response rises and then falls again (Boltzmann chosen, r² 0.58:
-no monotonic curve describes it). At 30 Hz the response changes sign between 1500
-and 2500 µA: crossing at **1751 µA** from the ECG-derived heart rate and **1714 µA** from the device
-heart-rate channel (`hr_device_bpm`), which agree; no CI (one train per level). This is a crossing
-point in an anaesthetised acute preparation, not the chronic fulcrum of Ardell et al.
+(-1.9 and -5.3 bpm). Thresholds: 500 µA at 30 Hz (bracketed); 1000 µA at 10 Hz and 1500 µA at 20 Hz,
+both **upper bounds** because the trains at the levels below were left out (overlap); none at 2 Hz.
+With one train per level and at most five levels, AICc chooses `none` at every frequency: these data
+do not support a dose-response curve. `OVERLAP=clip` keeps 19 of 20 trains: thresholds become
+500 µA (bracketed) at 10, 20 and 30 Hz, and the models are still `none`. At 30 Hz the response
+changes sign between 1500 and 2500 µA: crossing at **1751 µA** from the ECG-derived heart rate and
+**1714 µA** from the device heart-rate channel (`hr_device_bpm`), which agree; no interval (one train
+per level, so the null response is not shown to be reproducible). This is a crossing point in an
+anaesthetised acute preparation, not the fulcrum of Ardell et al.
 
 **Discover 655** (rat, closed-loop heart-rate control; `hr_bpm` from ecg-hrv): the controller's trains
 on two electrodes overlap almost everywhere, so only 4 of 16 trains are free of overlap. The
@@ -201,7 +201,10 @@ open-loop perturbation trains (3.78 a.u. on the proximal electrode) lowered hear
 recovered within 7-8 s; 0.1 s bursts changed nothing (+2.0 and +0.2 bpm). Kilohertz block epochs
 (kept in `responses.csv`, all overlapping) raised heart rate by 10-19 bpm. The amplitude barely
 varies, so there is no dose-response curve here: the dataset tests the overlap and block handling,
-long trains and the rat preset.
+long trains and the rat preset. These numbers use the ecg-hrv heart rate of 16:25 on 2026-11-13,
+whose rat R-peak detection jumped between two QRS lobes: window means are not biased, but
+`peak_delta` and `time_to_peak_s` are, and this run should be repeated on the corrected ecg-hrv
+output.
 
 ## Limitations
 

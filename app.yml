@@ -29,7 +29,7 @@ application:
 runtime:
   # Every series of a recording is held in memory (a few MB per hour at 4 Hz); fits are small. Measured
   # in Docker (amd64 emulation on an M-series Mac, --cpus 1 --memory 2g, read-only, any uid) on the demo
-  # data and the fixture (README "Runtime"): peak 230 MB, under 25 s. Single-threaded.
+  # data and the fixture (README "Runtime"): peak 240 MB, under 10 s. Single-threaded.
   cpu: 512
   memory: 1024
   computeTypes:
