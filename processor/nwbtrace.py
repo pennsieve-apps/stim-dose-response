@@ -27,14 +27,17 @@ def _search(ds, value: float) -> int:
 
 
 def channel_types(recordings_csv_dir: Path, recording_id: str) -> dict[str, str]:
-    """channel -> type from channels.csv next to recordings.csv; empty when there is none."""
+    """channel -> type from channels.csv next to recordings.csv; empty when there is none. Channels that
+    physio-import derived from another channel (`derived_from`, e.g. a filtered copy of the ECG) get the
+    type "derived" and are not drawn: the raw signal is shown."""
     p = Path(recordings_csv_dir) / "channels.csv"
     out = {}
     if p.exists():
         with open(p, newline="", encoding="utf-8-sig") as fh:
             for r in csv.DictReader(fh):
                 if r.get("recording_id") == recording_id:
-                    out[r.get("channel", "")] = (r.get("type") or "").lower()
+                    derived = (r.get("derived_from") or "").strip() not in ("", "n/a")
+                    out[r.get("channel", "")] = "derived" if derived else (r.get("type") or "").lower()
     return out
 
 

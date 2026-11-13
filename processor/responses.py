@@ -14,10 +14,15 @@ For each train (events.tsv row with trial_type stimulation or block) and each va
   recovery_s: seconds after the train ends (or after the peak, if later) until the moving mean is back
             within RECOVERY_FRACTION x |peak_delta| of baseline; searched up to the next train or the end
             of the series; empty when it never got back
-  valid_fraction: valid samples in the baseline and response windows / samples a full grid would have
+  The after window, the peak search and the recovery search end where the next train starts (the
+  moving-mean searches half a PEAK_WINDOW_S earlier), so another train's effect never enters them;
+  after_s_used says how much of AFTER_S was left.
+  valid_fraction: the smaller of the baseline's and the response window's valid share (valid samples /
+            samples a full grid would have); each window must reach MIN_VALID
 
 An event is left out of the fits (included=false, with the reason) when its baseline or response window
-overlaps another train (OVERLAP=exclude), or when its valid_fraction is below MIN_VALID. With
+overlaps another train (OVERLAP=exclude), or when the baseline or the response window has a valid share
+below MIN_VALID. With
 OVERLAP=clip the baseline is shortened to start after the previous train ends instead, and the event
 is left out only when less than half of BASELINE_S remains.
 """
@@ -135,7 +140,9 @@ def event_windows(ev: Event, others: list[Event], s: Settings) -> dict:
         excluded = True
         reasons.append("response window overlaps " + ",".join(hit_r))
     nxt = min([o.onset for o in others if o.onset > ev.onset], default=None)
-    return {"b0": b0, "b1": b1, "r0": r0, "r1": r1, "end": end, "a0": end, "a1": end + s.after_s,
+    # the after window, the peak search and the recovery search stop where the next train starts
+    a1 = end + s.after_s if nxt is None else max(end, min(end + s.after_s, nxt))
+    return {"b0": b0, "b1": b1, "r0": r0, "r1": r1, "end": end, "a0": end, "a1": a1,
             "next_onset": nxt, "excluded": excluded, "reasons": reasons}
 
 
@@ -145,8 +152,10 @@ def respond(ev: Event, win: dict, t: np.ndarray, v: np.ndarray, ok: np.ndarray, 
     b0, b1, r0, r1 = win["b0"], win["b1"], win["r0"], win["r1"]
     base, nb, var_b = _mean_valid(t, v, ok, b0, b1)
     out = {"baseline": base, "baseline_sd": (np.sqrt(var_b) if var_b is not None else None), "n_baseline": nb}
-    # peak: the largest deviation of the moving mean from baseline between onset and AFTER_S after the end
-    p0, p1 = ev.onset, win["a1"]
+    # peak: the largest deviation of the moving mean from baseline between onset and AFTER_S after the end,
+    # stopping half a smoothing window before the next train so its samples never enter the moving mean
+    nxt = win["next_onset"]
+    p0, p1 = ev.onset, win["a1"] if nxt is None else min(win["a1"], nxt - s.peak_window_s / 2)
     i0, i1 = np.searchsorted(t, p0, "left"), np.searchsorted(t, p1, "left")
     peak_delta = t_peak = None
     if base is not None and i1 > i0:
@@ -157,15 +166,17 @@ def respond(ev: Event, win: dict, t: np.ndarray, v: np.ndarray, ok: np.ndarray, 
     if s.response_window == "peak" and t_peak is not None:
         r0, r1 = t_peak - s.peak_window_s / 2, t_peak + s.peak_window_s / 2
     during, nd, _ = _mean_valid(t, v, ok, r0, r1)
-    after, _, _ = _mean_valid(t, v, ok, win["a0"], win["a1"])
-    expected = max(1.0, (b1 - b0) * rate) + max(1.0, (r1 - r0) * rate)
-    valid_fraction = min(1.0, (nb + nd) / expected)
+    after, _, _ = _mean_valid(t, v, ok, win["a0"], win["a1"]) if win["a1"] > win["a0"] else (None, 0, None)
+    # valid share per window (baseline and response separately; the smaller one is valid_fraction)
+    vf_b = min(1.0, nb / max(1.0, (b1 - b0) * rate))
+    vf_r = min(1.0, nd / max(1.0, (r1 - r0) * rate))
+    valid_fraction = min(vf_b, vf_r)
     delta = (during - base) if (during is not None and base is not None) else None
     pct = (100.0 * delta / base) if (delta is not None and base not in (None, 0.0)) else None
     recovery = None
     if peak_delta is not None and base is not None:
         start = max(win["end"], t_peak)
-        stop = win["next_onset"] if win["next_onset"] is not None else t[-1] + 1
+        stop = (nxt - s.peak_window_s / 2) if nxt is not None else t[-1] + 1
         k0, k1 = np.searchsorted(t, start, "left"), np.searchsorted(t, stop, "left")
         tol = s.recovery_fraction * abs(peak_delta)
         seg = smooth[k0:k1]
@@ -174,7 +185,8 @@ def respond(ev: Event, win: dict, t: np.ndarray, v: np.ndarray, ok: np.ndarray, 
             recovery = float(t[k0 + hit[0]] - win["end"])
     out.update({"during": during, "after": after, "delta": delta, "pct_change": pct, "peak_delta": peak_delta,
                 "time_to_peak_s": (t_peak - ev.onset) if t_peak is not None else None,
-                "recovery_s": recovery, "valid_fraction": valid_fraction, "window_start_s": r0,
+                "recovery_s": recovery, "valid_fraction": valid_fraction, "valid_fraction_baseline": vf_b,
+                "valid_fraction_response": vf_r, "after_s_used": win["a1"] - win["a0"], "window_start_s": r0,
                 "window_end_s": r1})
     return out
 

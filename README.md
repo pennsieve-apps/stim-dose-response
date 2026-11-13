@@ -6,8 +6,9 @@ analysis is Pennsieve's own implementation of published methods, and the credit 
 is their authors': the **neural fulcrum** is the concept of **Jeffrey L. Ardell, Heath Nier, Matthew
 Hammer, E. Marie Southerland, Christopher L. Ardell, Eric Beaumont, Bruce H. KenKnight and J. Andrew
 Armour** ([Ardell et al. 2017, J Physiol](https://doi.org/10.1113/JP274678));
-model selection uses the information criterion of **H. Akaike** ([Akaike 1974](https://doi.org/10.1109/TAC.1974.1100705)),
-confidence intervals the bootstrap of **B. Efron** ([Efron 1979](https://doi.org/10.1214/aos/1176344552)).
+model selection uses the information criterion of **H. Akaike** ([Akaike 1974](https://doi.org/10.1109/TAC.1974.1100705))
+with the small-sample correction of **C. M. Hurvich and C.-L. Tsai** ([Hurvich & Tsai 1989](https://doi.org/10.1093/biomet/76.2.297)),
+and the fulcrum interval the bootstrap of **B. Efron** ([Efron 1979](https://doi.org/10.1214/aos/1176344552)).
 The curve fits run on **SciPy** (`scipy.optimize.curve_fit`; Pauli Virtanen, Ralf Gommers, Travis E.
 Oliphant and the SciPy contributors, [github.com/scipy/scipy](https://github.com/scipy/scipy),
 [Virtanen et al. 2020](https://doi.org/10.1038/s41592-019-0686-2)) and the pooled mixed model on
@@ -36,7 +37,7 @@ are kept in the table but left out of the curves. For every parameter that was v
 others held fixed (e.g. current at each frequency), it plots the response against the parameter,
 fits a sigmoid (Hill or Boltzmann), a straight line, or no dependence, whichever the data support
 best, and reports the **threshold** (the lowest level whose mean response clearly exceeds the
-baseline noise), the **EC50** (the level giving half of the maximum response) and the maximum, with
+baseline noise; marked as an upper bound when the level below it was not analysed), the **EC50** (the level giving half of the maximum response) and the maximum, with
 95 % confidence intervals. When both amplitude and frequency were varied it draws the **response
 surface**; when heart rate goes up at low amplitudes and down at high ones it reports the amplitude
 where the response changes sign (the **neural fulcrum**, see the caveat below). With three or more
@@ -48,11 +49,12 @@ Every variable of every series is analysed, so a new upstream step joins by writ
 Per (train, variable): windowed means of valid samples; delta/pct change; peak of a centred moving
 mean; recovery to within a fraction of the peak. Per (subject, trial type, x, group of the other
 parameters, variable): four models fitted by bounded least squares to the per-train
-deltas, chosen by AIC; threshold from level means against a data-driven criterion; residual-bootstrap
-CIs. Pooled (>= 3 subjects of one species): level estimates from `MixedLM(delta ~ 0 + C(level), groups=subject)`,
-then the same model choice on those estimates and a bootstrap over subjects. Fulcrum: the first
-sign change of the level means between levels that exceed the criterion in opposite directions,
-linearly interpolated.
+deltas, chosen by AICc; threshold from level means against a data-driven criterion; t-based 95 %
+intervals from the fit's covariance. Pooled (>= 3 subjects of one species): level estimates and their
+standard errors from `MixedLM(delta ~ 0 + C(level), groups=subject)`, then the same model choice on
+those estimates, weighted by their standard errors, with normal-quantile intervals (n = number of
+levels). Fulcrum: the first sign change of the level means between levels that exceed the criterion
+in opposite directions, linearly interpolated; its interval is a bootstrap of trains within levels.
 
 ## Ports
 
@@ -78,13 +80,13 @@ but no trains (a resting recording), is listed as skipped in `provenance.json`; 
 | `RESPONSE_WINDOW` | `train` | `train` (mean over the train), `peak` (mean over `PEAK_WINDOW_S` around the largest change), or `fixed:<a>,<b>` (seconds after onset) |
 | `PEAK_WINDOW_S` | `2` | Moving-mean width for the peak, time to peak and recovery |
 | `RECOVERY_FRACTION` | `0.1` | Recovered = back within this fraction of the peak change (0.1 = 90 % recovered) |
-| `MIN_VALID` | `0.8` | Trains with a smaller share of valid samples in their baseline and response windows are left out of the fits |
+| `MIN_VALID` | `0.8` | Trains whose baseline window or response window (each checked on its own) has a smaller share of valid samples are left out of the fits |
 | `OVERLAP` | `exclude` | `exclude`: a train whose baseline or response window overlaps another train is left out of the fits; `clip`: the baseline starts where the previous train ended, and the train is left out only when less than half of `BASELINE_S` remains |
-| `THRESHOLD_CRITERION` | `auto` | `auto` = the larger of 5 % of baseline and 3 SD of the train-to-train baseline variability (the SD of the included trains' baseline means; with fewer than 3 included trains, the pooled within-window SD of the baseline samples); or `pct:<n>`, `sd:<k>`, `abs:<value>` |
+| `THRESHOLD_CRITERION` | `auto` | `auto` = the larger of 5 % of baseline (a convention of this app, no published source) and 3 SD of the train-to-train baseline variability (the SD of the included trains' baseline means; with fewer than 3 included trains, the pooled within-window SD of the baseline samples; it pools all of a subject's trains across frequencies and other parameters, and includes slow drift and carry-over from the previous train); or `pct:<n>`, `sd:<k>`, `abs:<value>` |
 | `MIN_LEVELS` | `4` | Fewest distinct levels for a curve fit (fewer: level means and threshold only) |
-| `MODELS` | `hill,boltzmann,linear,none` | Models compared by AIC (`none` always included) |
-| `N_BOOT` | `500` | Bootstrap resamples for the CIs; `0` = none |
-| `SEED` | `42` | Bootstrap seed |
+| `MODELS` | `hill,boltzmann,linear,none` | Models compared by AICc (`none` always included) |
+| `N_BOOT` | `500` | Bootstrap resamples for the fulcrum interval (trains resampled within levels; only when levels were repeated); `0` = none. The other intervals are t-based |
+| `SEED` | `42` | Bootstrap seed; each fit derives its own seed from it and its identity, so linking another variable does not change other intervals |
 | `VARIABLES` | `all` | Variables to analyse (comma list) |
 | `FIGURE_VARIABLES` | `auto` | Variables with figures: `auto` = `hr_bpm` (else `hr_device_bpm`), `map_mmhg`, `resp_rate_bpm` when present; `all`; or a list |
 | `FIGURES` | `true` | Write figures |
@@ -107,8 +109,8 @@ overridden.
 
 | File | Columns |
 |---|---|
-| `responses.csv` | `recording_id, event_id, variable, baseline, during, after, delta, pct_change, peak_delta, time_to_peak_s, recovery_s, valid_fraction`, then `subject, unit, series_source, onset, duration, trial_type, included, exclusion_reason, window_start_s, window_end_s, baseline_sd`, then the train's parameters (`amplitude, amplitude_unit, pulse_width_us, frequency_hz, train_duration_s, ..., condition` and any extra parameter column of events.tsv) |
-| `fits.csv` | `subject, recording_id` (`pooled` for pooled rows; `|`-joined when a subject has several recordings), `variable, x, x_unit, group` (the other parameters held fixed, only those that vary), `model` (`hill`/`boltzmann`/`linear`/`none`), `threshold, threshold_criterion, ec50, top, bottom, slope, r2, n, aic`, then `unit, trial_type, n_levels, n_subjects, criterion_value, direction, ec50_ci_low, ec50_ci_high, top_ci_low, top_ci_high, slope_ci_low, slope_ci_high, aic_hill, aic_boltzmann, aic_linear, aic_none, levels, level_means, species, note` |
+| `responses.csv` | `recording_id, event_id, variable, baseline, during, after, delta, pct_change, peak_delta, time_to_peak_s, recovery_s, valid_fraction` (the smaller of the two windows' valid shares), then `subject, unit, series_source, onset, duration, trial_type, included, exclusion_reason, window_start_s, window_end_s, baseline_sd, valid_fraction_baseline, valid_fraction_response, after_s_used` (the after window stops where the next train starts), then the train's parameters (`amplitude, amplitude_unit, pulse_width_us, frequency_hz, train_duration_s, ..., condition` and any extra parameter column of events.tsv) |
+| `fits.csv` | conventions.md order first: `subject, recording_id` (`pooled` for pooled rows; `|`-joined when a subject has several recordings), `variable, x, group` (the other parameters held fixed, only those that vary), `model` (`hill`/`boltzmann`/`linear`/`none`), `threshold, threshold_criterion, ec50, top, bottom, slope, r2, n` (trains; for pooled rows the number of level estimates), `aic` (AICc); then `x_unit, threshold_bound` (`bracketed`, or `upper`: the next lower tested level was not analysed or not tested, so the true threshold may be lower), `unit, trial_type, n_levels, n_subjects, criterion_value, direction, ec50_ci_low, ec50_ci_high, top_ci_low, top_ci_high, slope_ci_low, slope_ci_high, aic_hill, aic_boltzmann, aic_linear, aic_none, levels, level_means, species, note`. A group in which fewer than two levels have included trains still gets a row (`none`, with the reason). When the response changes sign along x (fulcrum.csv), the monotone fit's `ec50, top, bottom, slope` and intervals are left empty |
 | `surface.csv` | `subject, variable, amplitude, frequency_hz, mean_delta, sd, n, group, trial_type, unit, species` (when amplitude and frequency both vary; pooled rows average the subjects' cell means) |
 | `fulcrum.csv` | `subject, variable, frequency_hz, amplitude_at_fulcrum, method, ci_low, ci_high, group, recording_id, levels, level_means, species, note` |
 | `features.csv` | `recording_id, channel, feature, value`: `dose_n_trains`, `dose_n_trains_included`, `resp_max_delta_<variable>`, `dose_threshold_<variable>_<x>[_<group>]`, `dose_ec50_...`, `fulcrum_amplitude_<variable>[_<group>]` |
@@ -117,18 +119,28 @@ overridden.
 | `provenance.json` | the shared keys of the physiology apps, plus `windows` (per recording: species, windows and where they came from) and `species_presets` |
 
 Model details: Hill `y = top·xⁿ/(ec50ⁿ + xⁿ)` and Boltzmann `y = top/(1 + e^((ec50 − x)/slope))` with
-the bottom fixed at 0 (the response is a change from baseline, so no stimulation means no change);
-linear `y = a + b·x`; none `y = c`. AIC = n·ln(RSS/n) + 2(k + 1). A model is only compared when it
-leaves at least two residual degrees of freedom. `top` is the fitted maximum change (for `linear`,
+the lower asymptote (bottom) fixed at 0, the baseline. The Hill curve passes through 0 at x = 0; the
+Boltzmann curve only approaches 0 and is `top/(1 + e^(ec50/slope))` at x = 0. Linear `y = a + b·x`;
+none `y = c`. Models are compared by AICc = n·ln(RSS/n) + 2K + 2K(K + 1)/(n − K − 1), K = fitted
+parameters + 1 (Hurvich & Tsai 1989), and a model takes part only when n ≥ K + 2: at least 4 points
+for `none`, 5 for `linear` and 6 for a sigmoid. **With one train per level and the default
+MIN_LEVELS = 4, a sigmoid needs six levels; with four or five levels the choice is only between
+linear and none.** Repeating trains per level lets the sigmoids take part. Intervals: t quantiles on
+the residual degrees of freedom from the fit's covariance (Hill EC50 on the log scale), none below 2
+residual degrees of freedom; pooled, normal quantiles from the mixed model's standard errors. `top` is the fitted maximum change (for `linear`,
 the fitted value at the highest level; `bottom` at the lowest). An EC50 at the fit bounds is left
 empty; one outside the tested range is kept and flagged as extrapolated in `note`.
 
-**Neural fulcrum caveat.** Ardell et al. (2017) defined the neural fulcrum for chronic, duty-cycled
-vagus nerve stimulation in conscious animals: the operating point where stimulation-evoked
-tachycardia (afferent-driven) and bradycardia (efferent-driven) balance. Here it is only the
-amplitude where the heart-rate response to the trains in a recording changes sign at a fixed
-frequency. In acute or anaesthetised preparations with short trains it is a descriptive crossing
-point, not the chronic-therapy fulcrum. `summary.json` carries this caveat as its `notice` whenever a
+**Neural fulcrum caveat.** Ardell et al. (2017) defined the neural fulcrum in dogs with chronically
+implanted cervical vagus electrodes, studied awake, as the frequency-amplitude-pulse-width operating
+point where a null heart-rate response is *reproducibly* evoked during the on-phase of stimulation,
+between afferent-driven tachycardia at low intensities and efferent-driven bradycardia at higher
+ones. Their abstract states that VNS heart control differs qualitatively between awake and
+anaesthetised states but that the physiological expression of the neural fulcrum is maintained. Here
+it is only the amplitude where the heart-rate response to a recording's trains changes sign at a
+fixed frequency, interpolated between two tested levels. With one train per level the null response
+cannot be shown to be reproducible (fulcrum.csv then has no interval): treat it as a descriptive
+crossing point, not the operating point of chronic therapy. `summary.json` carries this caveat as its `notice` whenever a
 fulcrum is reported.
 
 ## Runtime
@@ -195,13 +207,15 @@ long trains and the rat preset.
   a slower drift, and with short gaps between trains the previous train's after-effect sits in the
   next baseline. The table flags overlap, not after-effects; use `MIN_GAP_S` in stim-events and the
   time-course figures to judge it.
-- With one train per level (common in grid protocols) a curve rests on 4-6 points: model choice is
-  fragile, the residual-bootstrap CIs are conditional on the chosen model, and thresholds are only as
-  fine as the tested levels. Repeat trains per level where possible.
-- AIC is used as specified; with very few trains a sigmoid can win by a small margin. The `aic_*`
-  columns show every model's score.
+- With one train per level (common in grid protocols) a curve rests on 4-6 points: AICc then allows
+  only linear vs none (sigmoids from six levels), the t-based intervals are wide and conditional on
+  the chosen model, and thresholds are only as fine as the tested levels. Repeat trains per level
+  where possible.
 - The threshold is the lowest level whose mean change exceeds the criterion; it is not a statistical
-  test and does not correct for testing several levels.
+  test and does not correct for testing several levels. When trains of the level below were left out
+  (overlap, artefact), it is only an upper bound (`threshold_bound=upper`).
+- The 5 % part of the criterion is a convention without a published source; the 3 SD part pools all
+  of a subject's trains (every frequency) and includes slow drift and carry-over between trains.
 - Anaesthesia changes autonomic tone and responses to vagus stimulation; values from anaesthetised
   preparations (Discover 349) do not transfer to conscious animals or patients.
 - Validated on synthetic data with known answers, on one pig (Discover 349) and one rat (Discover
@@ -228,6 +242,8 @@ Methods:
   control. *The Journal of Physiology* 595(22):6887-6903. doi:10.1113/JP274678. PMID 28862330.
 - Akaike H (1974). A new look at the statistical model identification. *IEEE Transactions on
   Automatic Control* 19(6):716-723. doi:10.1109/TAC.1974.1100705.
+- Hurvich CM, Tsai CL (1989). Regression and time series model selection in small samples.
+  *Biometrika* 76(2):297-307. doi:10.1093/biomet/76.2.297.
 - Efron B (1979). Bootstrap Methods: Another Look at the Jackknife. *The Annals of Statistics*
   7(1):1-26. doi:10.1214/aos/1176344552.
 

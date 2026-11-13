@@ -56,6 +56,7 @@ for _v in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS", "NUMBA_
     os.environ[_v] = str(_THREADS)
 
 import csv  # noqa: E402
+import hashlib  # noqa: E402
 import json  # noqa: E402
 import logging  # noqa: E402
 import math  # noqa: E402
@@ -89,13 +90,18 @@ DOI_STATSMODELS = "10.25080/Majora-92bf1922-011"
 DOI_FULCRUM = "10.1113/JP274678"
 DOI_AIC = "10.1109/TAC.1974.1100705"
 DOI_BOOTSTRAP = "10.1214/aos/1176344552"
+DOI_AICC = "10.1093/biomet/76.2.297"
 
 FULCRUM_CAVEAT = (
-    "The neural fulcrum was defined by Ardell et al. (2017) for chronic, duty-cycled vagus nerve stimulation "
-    "in conscious animals: the operating point where stimulation-evoked tachycardia (afferent-driven) and "
-    "bradycardia (efferent-driven) balance. Here it is only the amplitude where the heart-rate response to "
-    "the trains in this recording changes sign; in acute or anaesthetised preparations, with short trains, "
-    "it is a descriptive crossing point, not the chronic-therapy fulcrum.")
+    "The neural fulcrum was defined by Ardell et al. (2017) in dogs with chronically implanted cervical vagus "
+    "stimulation electrodes, awake, as the frequency-amplitude-pulse-width operating point where a null heart-rate "
+    "response is reproducibly evoked during the on-phase of stimulation, between afferent-driven tachycardia at low "
+    "intensities and efferent-driven bradycardia at higher ones; they report that VNS heart control differs "
+    "qualitatively between awake and anaesthetised states but that the neural fulcrum is maintained. Here it is "
+    "only the amplitude where the heart-rate response to the trains of a recording changes sign at a fixed "
+    "frequency, interpolated between two tested levels. With one train per level the null response cannot be "
+    "shown to be reproducible (fulcrum.csv then has no interval), so treat it as a descriptive crossing point, "
+    "not as the operating point of chronic therapy.")
 RESEARCH_NOTICE = ("Research outputs: responses, thresholds and EC50 values describe these recordings and are "
                    "not clinical findings or dosing recommendations.")
 
@@ -111,12 +117,14 @@ EVENT_PARAM_ORDER = ["amplitude", "amplitude_unit", "pulse_width_us", "frequency
 RESP_HEADER = ["recording_id", "event_id", "variable", "baseline", "during", "after", "delta", "pct_change",
                "peak_delta", "time_to_peak_s", "recovery_s", "valid_fraction", "subject", "unit", "series_source",
                "onset", "duration", "trial_type", "included", "exclusion_reason", "window_start_s", "window_end_s",
-               "baseline_sd"]
-FIT_HEADER = ["subject", "recording_id", "variable", "x", "x_unit", "group", "model", "threshold", "threshold_criterion",
-              "ec50", "top", "bottom", "slope", "r2", "n", "aic", "unit", "trial_type", "n_levels", "n_subjects",
-              "criterion_value", "direction", "ec50_ci_low", "ec50_ci_high", "top_ci_low", "top_ci_high",
-              "slope_ci_low", "slope_ci_high", "aic_hill", "aic_boltzmann", "aic_linear", "aic_none", "levels",
-              "level_means", "species", "note"]
+               "baseline_sd", "valid_fraction_baseline", "valid_fraction_response", "after_s_used"]
+FIT_HEADER = ["subject", "recording_id", "variable", "x", "group", "model", "threshold", "threshold_criterion",
+              "ec50", "top", "bottom", "slope", "r2", "n", "aic",
+              # beyond the conventions.md columns
+              "x_unit", "threshold_bound", "unit", "trial_type", "n_levels", "n_subjects", "criterion_value",
+              "direction", "ec50_ci_low", "ec50_ci_high", "top_ci_low", "top_ci_high", "slope_ci_low",
+              "slope_ci_high", "aic_hill", "aic_boltzmann", "aic_linear", "aic_none", "levels", "level_means",
+              "species", "note"]
 SURF_HEADER = ["subject", "variable", "amplitude", "frequency_hz", "mean_delta", "sd", "n", "group", "trial_type",
                "unit", "species"]
 FULC_HEADER = ["subject", "variable", "frequency_hz", "amplitude_at_fulcrum", "method", "ci_low", "ci_high", "group",
@@ -322,8 +330,9 @@ def process_recording(rid: str, events: list[RS.Event], series, settings: RS.Set
             w = wins[e.event_id]
             r = RS.respond(e, w, t, v, ok, smooth, rate, settings)
             reasons = list(w["reasons"])
-            if r["valid_fraction"] < settings.min_valid:
-                reasons.append(f"valid_fraction {r['valid_fraction']:.2f} < MIN_VALID {settings.min_valid:g}")
+            for wname, key in (("baseline", "valid_fraction_baseline"), ("response window", "valid_fraction_response")):
+                if r[key] < settings.min_valid:
+                    reasons.append(f"{wname} valid share {r[key]:.2f} < MIN_VALID {settings.min_valid:g}")
             if r["baseline"] is None:
                 reasons.append("no valid baseline samples")
             if r["delta"] is None:
@@ -335,8 +344,10 @@ def process_recording(rid: str, events: list[RS.Event], series, settings: RS.Set
                    "exclusion_reason": ("; ".join(x for x in reasons if x.startswith("duration")) if included
                                         else "; ".join(reasons) or "excluded"),
                    **{k: r[k] for k in ("baseline", "during", "after", "delta", "pct_change", "peak_delta",
-                                        "time_to_peak_s", "recovery_s", "valid_fraction", "window_start_s",
+                                        "time_to_peak_s", "recovery_s", "valid_fraction", "valid_fraction_baseline",
+                                        "valid_fraction_response", "after_s_used", "window_start_s",
                                         "window_end_s", "baseline_sd")},
+                   "_next_onset": w["next_onset"],
                    "_baseline_var": (r["baseline_sd"] ** 2) if r["baseline_sd"] is not None else None,
                    "_params": e.params}
             rows.append(row)
@@ -379,37 +390,57 @@ def subject_criteria(rows: list[dict], spec: str) -> dict:
     return out
 
 
-def _fit_row(base: dict, x: np.ndarray, y: np.ndarray, prm: dict, crit, rng, pooled_subjects=None) -> dict:
-    fit, aics, note = DR.choose(x, y, prm["models"], prm["min_levels"])
+def fit_seed(seed: int, *key) -> np.random.Generator:
+    """A generator per fit, from SEED and the fit's identity, so adding a variable or a recording does not
+    change any other fit's bootstrap."""
+    h = hashlib.sha256("|".join(map(str, (seed, *key))).encode()).digest()
+    return np.random.default_rng(int.from_bytes(h[:8], "little"))
+
+
+def _fit_row(base: dict, x: np.ndarray, y: np.ndarray, prm: dict, crit, tested, pooled=None) -> dict:
+    """One fits.csv row. Per subject: x, y are the included trains. Pooled: x, y are the mixed-model level
+    estimates and pooled["se"] their standard errors (weighted fit; n = number of levels)."""
+    sigma = pooled["se"] if pooled is not None else None
+    fit, aics, note = DR.choose(x, y, prm["models"], prm["min_levels"], sigma=sigma)
     d = DR.describe(fit, x)
     ux, means, _ = DR.level_means(x, y)
-    if pooled_subjects is not None:
-        ux, means = pooled_subjects["ux"], pooled_subjects["means"]
-    thr, direction = DR.threshold(ux, means, crit[0])
+    thr, direction, bound = DR.threshold(ux, means, crit[0], tested)
     notes = [n for n in (note, "" if direction in ("increase", "decrease") else direction) if n]
-    if pooled_subjects is not None:
-        notes.append(pooled_subjects["note"])
-        cis = DR.bootstrap_subjects(fit, pooled_subjects["per_subject"], prm["n_boot"], rng)
-    else:
-        cis = DR.bootstrap_residual(fit, x, y, prm["n_boot"], rng)
+    if bound == "upper":
+        notes.append("threshold is an upper bound: the next lower tested level was not analysed or not tested")
+    if pooled is not None:
+        notes.append(pooled["note"])
+        if sigma is None:
+            notes.append("no standard errors for the level estimates: no intervals")
+    cis = DR.intervals(fit, x) if (pooled is None or sigma is not None) else {}
+    if fit is not None and fit.model != "none" and not cis:
+        notes.append("too few points for intervals")
     if d["ec50"] is not None and not (ux.min() <= d["ec50"] <= ux.max()):
         notes.append("EC50 outside the tested range (extrapolated)")
     row = dict(base)
-    row.update({"model": fit.model if fit else "none", "threshold": thr, "threshold_criterion": crit[1],
-                "criterion_value": crit[0], "direction": direction if direction in ("increase", "decrease") else "",
+    row.update({"model": fit.model if fit else "none", "threshold": thr, "threshold_bound": bound,
+                "threshold_criterion": crit[1], "criterion_value": crit[0],
+                "direction": direction if direction in ("increase", "decrease") else "",
                 "ec50": d["ec50"], "top": d["top"], "bottom": d["bottom"], "slope": d["slope"],
                 "r2": fit.r2 if fit else None, "n": len(y), "n_levels": len(ux), "aic": fit.aic if fit else None,
                 **{f"aic_{m}": aics.get(m) for m in DR.ALL_MODELS}, **cis,
                 "levels": "|".join(DR.fmt_level(float(u)) for u in ux),
                 "level_means": "|".join(f"{m:.4g}" for m in means), "note": "; ".join(notes),
                 "_fit": fit, "_x": x, "_y": y, "_ux": ux, "_means": means})
-    if row["ec50"] is None:
-        row.pop("ec50_ci_low", None)
-        row.pop("ec50_ci_high", None)
     return row
 
 
-def fit_all(rows: list[dict], events_by_rec: dict, prm: dict, crits: dict, rng) -> tuple[list, list, list]:
+def suppress_for_fulcrum(row: dict) -> None:
+    """The response changes sign along x: a monotone curve's slope, top and EC50 do not describe it."""
+    for k in ("ec50", "top", "bottom", "slope", "ec50_ci_low", "ec50_ci_high", "top_ci_low", "top_ci_high",
+              "slope_ci_low", "slope_ci_high"):
+        row[k] = None
+    row["note"] = "; ".join(n for n in (row["note"], "the response changes sign along x (fulcrum.csv): the "
+                                        "monotone fit's slope, top and EC50 are left empty") if n)
+    row["sign_change"] = True
+
+
+def fit_all(rows: list[dict], events_by_rec: dict, prm: dict, crits: dict) -> tuple[list, list, list]:
     """Per-subject and pooled fits, surfaces and fulcrums."""
     fits, surfaces, fulcrums = [], [], []
     by_subject = defaultdict(list)
@@ -439,26 +470,37 @@ def fit_all(rows: list[dict], events_by_rec: dict, prm: dict, crits: dict, rng) 
                 if lv[x] is not None:
                     groups[DR.group_label(lv, others)].append((e, lv))
             for g, members in sorted(groups.items()):
-                if len({lv[x] for _, lv in members}) < 2:
-                    continue
+                tested = sorted({lv[x] for _, lv in members})
                 for var in variables:
                     pts = [(lv[x], resp[var][(e.recording_id, e.event_id)]["delta"], e) for e, lv in members
                            if (e.recording_id, e.event_id) in resp[var]]
+                    base = {"subject": subject, "recording_id": "|".join(sorted({e.recording_id for e, _ in members})),
+                            "variable": var, "x": x, "x_unit": x_unit(x, [e.params for e, _ in members]), "group": g,
+                            "unit": PS.unit_of(var), "trial_type": tt, "n_subjects": 1, "species": species}
                     if len({p[0] for p in pts}) < 2:
+                        # one level (or none) analysed in this group: a row saying so, no curve
+                        why = ("only one level of x was tested in this group" if len(tested) < 2 else
+                               f"{len({p[0] for p in pts})} of {len(tested)} tested levels have included trains")
+                        if not any(r["variable"] == var and r["subject"] == subject for r in rows):
+                            continue
+                        fits.append({**base, "model": "none", "n": len(pts), "n_levels": len({p[0] for p in pts}),
+                                     "levels": "|".join(DR.fmt_level(float(p)) for p in sorted({p[0] for p in pts})),
+                                     "level_means": "|".join(f"{np.mean([q[1] for q in pts if q[0] == u]):.4g}"
+                                                             for u in sorted({p[0] for p in pts})),
+                                     "note": why + ": no fit, no threshold", "_fit": None})
                         continue
                     xa = np.array([p[0] for p in pts], float)
                     ya = np.array([p[1] for p in pts], float)
                     crit = crits.get((subject, tt, var), (None, "no baseline"))
-                    base = {"subject": subject, "recording_id": "|".join(sorted({p[2].recording_id for p in pts})),
-                            "variable": var, "x": x, "x_unit": x_unit(x, [p[2].params for p in pts]), "group": g,
-                            "unit": PS.unit_of(var), "trial_type": tt, "n_subjects": 1, "species": species}
-                    row = _fit_row(base, xa, ya, prm, crit, rng)
+                    row = _fit_row(base, xa, ya, prm, crit, tested)
                     fits.append(row)
                     if x == "amplitude" and var.startswith(PS.FULCRUM_PREFIX) and crit[0] is not None:
                         xf, note = DR.fulcrum(row["_ux"], row["_means"], crit[0])
                         if xf is not None:
+                            suppress_for_fulcrum(row)
                             freqs = {lv.get("frequency_hz") for _, lv in members if lv.get("frequency_hz") is not None}
-                            cis = DR.bootstrap_fulcrum(xa, ya, crit[0], prm["n_boot"], rng)
+                            cis = DR.bootstrap_fulcrum(xa, ya, crit[0], prm["n_boot"],
+                                                       fit_seed(prm["seed"], "fulcrum", subject, tt, var, x, g))
                             fulcrums.append({"subject": subject, "variable": var, "species": species,
                                              "frequency_hz": freqs.pop() if len(freqs) == 1 else None,
                                              "amplitude_at_fulcrum": xf,
@@ -513,17 +555,16 @@ def fit_all(rows: list[dict], events_by_rec: dict, prm: dict, crits: dict, rng) 
                     xa = np.array([p[0] for p in pts], float)
                     ya = np.array([p[1] for p in pts], float)
                     sa = np.array([str(p[2]) for p in pts])
-                    ux, est, note = DR.mixed_level_estimates(xa, ya, sa)
-                    per_subject = DR.subject_level_means(xa, ya, sa)
+                    ux, est, se, note = DR.mixed_level_estimates(xa, ya, sa)
                     cvals = [crits.get((s, tt, var), (None, ""))[0] for s in subs]
                     cvals = [c for c in cvals if c is not None]
                     crit = ((float(np.mean(cvals)), "mean of the subjects' criteria") if cvals else (None, "no baseline"))
                     base = {"subject": "pooled", "recording_id": "pooled", "variable": var, "x": x,
                             "x_unit": x_unit(x, [e.params for e, _ in members]), "group": g,
                             "unit": PS.unit_of(var), "trial_type": tt, "n_subjects": len(subs), "species": species}
-                    row = _fit_row(base, ux, est, prm, crit, rng,
-                                   pooled_subjects={"ux": ux, "means": est, "note": note, "per_subject": per_subject})
-                    row["n"] = len(ya)
+                    row = _fit_row(base, ux, est, prm, crit, sorted({lv[x] for _, lv in members}),
+                                   pooled={"se": se, "note": note + f"; n = {len(ux)} level estimates from "
+                                                                     f"{len(ya)} trains"})
                     if dropped:
                         row["note"] = "; ".join(n for n in (row["note"], "levels tested in fewer than 3 subjects "
                                                             "left out: " + ",".join(DR.fmt_level(d) for d in dropped)) if n)
@@ -531,6 +572,7 @@ def fit_all(rows: list[dict], events_by_rec: dict, prm: dict, crits: dict, rng) 
                     if x == "amplitude" and var.startswith(PS.FULCRUM_PREFIX) and crit[0] is not None:
                         xf, fnote = DR.fulcrum(ux, est, crit[0])
                         if xf is not None:
+                            suppress_for_fulcrum(row)
                             freqs = {lv.get("frequency_hz") for _, lv in members if lv.get("frequency_hz") is not None}
                             fulcrums.append({"subject": "pooled", "variable": var,
                                              "frequency_hz": freqs.pop() if len(freqs) == 1 else None,
@@ -659,11 +701,10 @@ def main() -> int:
                  "%d variables, baseline %gs after %gs, %.2fs", i, len(rec_ids), rid, subject, species, sp_src,
                  len(evs), n_inc, len(variables), settings.baseline_s, settings.after_s, secs)
 
-    rng = np.random.default_rng(prm["seed"])
     crits = subject_criteria(all_rows, prm["criterion"])
     t_fit = time.monotonic()
     fits, surfaces, fulcrums = fit_all(all_rows, {r: [e for e in events_by_rec[r] if per_rec.get(r, {}).get("status")
-                                                       == "ok"] for r in events_by_rec}, prm, crits, rng)
+                                                       == "ok"] for r in events_by_rec}, prm, crits)
     log.info("fits: %d rows (%d pooled), %d surface cells, %d fulcrum(s), %.1fs", len(fits),
              sum(1 for f in fits if f["subject"] == "pooled"), len(surfaces), len(fulcrums), time.monotonic() - t_fit)
 
@@ -771,7 +812,8 @@ def main() -> int:
          "the train was used in the fits (and why not), and the train's stimulation parameters."},
         {"path": "fits.csv", "caption": "Dose-response per subject (and pooled over three or more subjects): for "
          "each parameter that varies with the others held fixed, the chosen model (Hill, Boltzmann, linear or none, "
-         "by AIC), threshold, EC50, top, slope, r², AIC of every model and 95% bootstrap intervals."},
+         "by AICc), threshold (with whether it is bracketed or an upper bound), EC50, top, slope, r², AICc of every "
+         "model and 95% intervals (t-based per subject, from the mixed model's standard errors when pooled)."},
     ]
     if surfaces:
         tables.append({"path": "surface.csv", "caption": "Mean change per amplitude x frequency cell (response "
@@ -784,8 +826,8 @@ def main() -> int:
                "warnings": warnings_out, "notice": notice}
     (out / "summary.json").write_text(json.dumps(summary, indent=2, default=_json_default))
 
-    citations = [DOI_SCIPY, DOI_AIC]
-    if prm["n_boot"] > 0:
+    citations = [DOI_SCIPY, DOI_AIC, DOI_AICC]
+    if any(f.get("ci_low") is not None for f in fulcrums):
         citations.append(DOI_BOOTSTRAP)
     if any(f["subject"] == "pooled" for f in fits):
         citations.append(DOI_STATSMODELS)

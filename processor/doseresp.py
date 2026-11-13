@@ -3,25 +3,32 @@ Dose-response: which stimulation parameter varies, model fits, thresholds, EC50,
 the neural fulcrum. In-house implementation of published, short methods (no licensed tool exists):
 
 - Models (scipy.optimize.curve_fit with bounds, several starting points). The response is the change
-  from baseline (delta), so the curves start at 0 (bottom fixed at 0, the baseline):
+  from baseline (delta), so the lower asymptote (bottom) is fixed at 0, the baseline. The Hill curve
+  passes through 0 at x = 0; the Boltzmann curve only approaches 0 (at x = 0 it is top / (1 + e^(ec50/slope))):
     hill       y = top * x^n / (ec50^n + x^n)                 (x >= 0; slope = n)
     boltzmann  y = top / (1 + exp((ec50 - x) / slope))
     linear     y = a + b * x                                  (slope = b)
     none       y = c                                          (no dependence on x)
-  chosen by AIC = n ln(RSS / n) + 2 k (k fitted parameters + 1 for the residual variance), among the
-  models with at least 2 residual degrees of freedom, when x has at least MIN_LEVELS distinct levels;
-  else `none`.
-- Threshold: the lowest level of x whose mean response exceeds the criterion in absolute value; the
-  criterion (THRESHOLD_CRITERION=auto) is the larger of 5 % of the baseline and 3 SD of the baseline
+  chosen by AICc (Hurvich & Tsai 1989; AIC of Akaike 1974 with the small-sample correction):
+  AICc = n ln(RSS / n) + 2K + 2K(K + 1) / (n - K - 1), K = fitted parameters + 1 for the residual
+  variance. A model takes part only when n >= K + 2, i.e. at least 4 points for `none`, 5 for `linear`
+  and 6 for a sigmoid; with one train per level and 4-5 levels the choice is between linear and none.
+  Fewer than MIN_LEVELS distinct levels: `none` (level means and threshold only).
+- Threshold: the lowest level of x whose mean response exceeds the criterion in absolute value; an
+  upper bound (threshold_bound=upper) unless the next lower tested level was analysed and stayed below
+  the criterion. The criterion (THRESHOLD_CRITERION=auto) is the larger of 5 % of the baseline (a
+  convention, no published source) and 3 SD of the baseline
   variability: the train-to-train SD of the baseline means of the subject's included trains, or, with
   fewer than 3 such trains, the within-window SD of the baseline samples pooled over them
-  (main.subject_criteria).
-- Bootstrap CIs (N_BOOT, SEED): per subject, residual bootstrap of the chosen model (trains are rarely
-  repeated at every level, so resampling trains within a level would not vary); pooled, a bootstrap of
-  subjects.
+  (main.subject_criteria). That SD pools all of a subject's trains (all frequencies and other
+  parameters) and also contains slow drift and any carry-over from the previous train.
+- 95 % intervals: per subject, from the fit's covariance with t quantiles on the residual degrees of
+  freedom (Hill EC50 on the log scale); pooled, from the mixed model's standard errors of the level
+  estimates (weighted fit, normal quantiles). The fulcrum interval is a bootstrap of trains within
+  levels (N_BOOT, a seed per fit derived from SEED), only when levels were repeated.
 - Pooled fits (>= 3 subjects): the response at each level is estimated with a linear mixed model with
   the level as a fixed effect and subject as a random intercept (statsmodels MixedLM), and the models
-  are fitted to those estimates.
+  are fitted to those estimates weighted by their standard errors; n is then the number of levels.
 - Neural fulcrum (Ardell et al. 2017): for heart-rate variables, at a fixed frequency, the amplitude
   where the response changes sign (tachycardia to bradycardia or back), found by linear interpolation
   between the two bracketing level means, when one level exceeds the criterion in each direction.
@@ -74,14 +81,22 @@ class Fit:
     model: str
     params: tuple
     rss: float
-    aic: float
+    aic: float                      # AICc
     r2: float | None
     note: str = ""
+    cov: np.ndarray | None = None   # parameter covariance (residual-scaled, or from sigma when absolute)
+    df: int = 0                     # residual degrees of freedom
+    absolute: bool = False          # cov from known standard errors (pooled fits) rather than residuals
 
 
-def _aic(n: int, rss: float, k: int) -> float:
+def aicc(n: int, rss: float, k: int) -> float | None:
+    """Corrected AIC (Hurvich & Tsai 1989) with K = k + 1 parameters (k fitted + the residual variance);
+    None when n - K - 1 < 1 (the correction is undefined)."""
+    kk = k + 1
+    if n - kk - 1 < 1:
+        return None
     rss = max(rss, 1e-12 * max(1, n))
-    return n * math.log(rss / n) + 2 * (k + 1)
+    return n * math.log(rss / n) + 2 * kk + 2 * kk * (kk + 1) / (n - kk - 1)
 
 
 def _bounds(model: str, x: np.ndarray, y: np.ndarray):
@@ -113,59 +128,68 @@ def _starts(model: str, x: np.ndarray, y: np.ndarray):
     return [None]
 
 
-def fit_model(model: str, x: np.ndarray, y: np.ndarray, p0=None) -> Fit | None:
+def fit_model(model: str, x: np.ndarray, y: np.ndarray, sigma: np.ndarray | None = None) -> Fit | None:
+    """Least-squares fit (weighted by 1/sigma^2 when sigma is given: pooled fits, where sigma are the
+    mixed model's standard errors and the covariance is taken as absolute). None when AICc is undefined
+    for this n (n < k + 3)."""
     n = len(x)
     k = N_PARAMS[model]
-    if n < k + 2:
+    if n < k + 3:
         return None
-    tss = float(np.sum((y - np.mean(y)) ** 2))
-    if model == "none":
-        c = float(np.mean(y))
-        rss = tss
-        return Fit(model, (c,), rss, _aic(n, rss, k), None)
-    if model == "linear":
-        b, a = np.polyfit(x, y, 1)
-        rss = float(np.sum((y - f_linear(x, a, b)) ** 2))
-        return Fit(model, (float(a), float(b)), rss, _aic(n, rss, k), (1 - rss / tss) if tss > 0 else None)
+    w = np.ones(n) if sigma is None else 1.0 / np.asarray(sigma, float) ** 2
+    absolute = sigma is not None
+    ybar = float(np.sum(w * y) / np.sum(w))
+    tss = float(np.sum(w * (y - ybar) ** 2))
+    df = n - k
+    if model in ("none", "linear"):
+        X = np.ones((n, 1)) if model == "none" else np.column_stack([np.ones(n), x])
+        W = np.diag(w)
+        xtwx_inv = np.linalg.pinv(X.T @ W @ X)
+        beta = xtwx_inv @ X.T @ W @ y
+        rss = float(np.sum(w * (y - X @ beta) ** 2))
+        cov = xtwx_inv if absolute else xtwx_inv * (rss / df)
+        r2 = None if model == "none" else ((1 - rss / tss) if tss > 0 else None)
+        return Fit(model, tuple(float(b) for b in beta), rss, aicc(n, rss, k), r2, cov=cov, df=df, absolute=absolute)
     lo, hi = _bounds(model, x, y)
     best = None
-    for start in ([p0] if p0 is not None else _starts(model, x, y)):
-        s = np.clip(np.asarray(start, float), np.asarray(lo) + 1e-12, np.asarray(hi) - 1e-12)
+    for start in _starts(model, x, y):
+        s0 = np.clip(np.asarray(start, float), np.asarray(lo) + 1e-12, np.asarray(hi) - 1e-12)
         try:
             with _warnings.catch_warnings():
                 _warnings.simplefilter("ignore", OptimizeWarning)
                 _warnings.simplefilter("ignore", RuntimeWarning)
-                p, _ = curve_fit(FUNCS[model], x, y, p0=s, bounds=(lo, hi), maxfev=4000)
+                p, pcov = curve_fit(FUNCS[model], x, y, p0=s0, bounds=(lo, hi), maxfev=4000,
+                                    sigma=sigma, absolute_sigma=absolute)
         except (RuntimeError, ValueError):
             continue
-        rss = float(np.sum((y - FUNCS[model](x, *p)) ** 2))
+        rss = float(np.sum(w * (y - FUNCS[model](x, *p)) ** 2))
         if np.isfinite(rss) and (best is None or rss < best[1]):
-            best = (tuple(float(v) for v in p), rss)
+            best = (tuple(float(v) for v in p), rss, pcov)
     if best is None:
         return None
-    p, rss = best
+    p, rss, pcov = best
     note = ""
-    if model in ("hill", "boltzmann"):
-        if abs(p[1] - lo[1]) <= 1e-6 * max(1, abs(lo[1])) or abs(p[1] - hi[1]) <= 1e-6 * max(1, abs(hi[1])):
-            note = "EC50 at the fit bound: not determined"
-    return Fit(model, p, rss, _aic(n, rss, k), (1 - rss / tss) if tss > 0 else None, note)
+    if abs(p[1] - lo[1]) <= 1e-6 * max(1, abs(lo[1])) or abs(p[1] - hi[1]) <= 1e-6 * max(1, abs(hi[1])):
+        note = "EC50 at the fit bound: not determined"
+    return Fit(model, p, rss, aicc(n, rss, k), (1 - rss / tss) if tss > 0 else None, note, cov=pcov, df=df,
+               absolute=absolute)
 
 
-def choose(x: np.ndarray, y: np.ndarray, models, min_levels: int) -> tuple[Fit | None, dict, str]:
-    """Best model by AIC. Returns (fit, {model: aic}, note)."""
+def choose(x: np.ndarray, y: np.ndarray, models, min_levels: int, sigma=None) -> tuple[Fit | None, dict, str]:
+    """Best model by AICc. Returns (fit, {model: aicc}, note)."""
     n_levels = len(np.unique(x))
     aics = {}
     if n_levels < min_levels:
-        f = fit_model("none", x, y)
+        f = fit_model("none", x, y, sigma)
         return f, ({"none": f.aic} if f else {}), f"{n_levels} level(s) < MIN_LEVELS {min_levels}: no curve fitted"
     fits = []
     for m in models:
-        f = fit_model(m, x, y)
+        f = fit_model(m, x, y, sigma)
         if f is not None:
             aics[m] = f.aic
             fits.append(f)
     if not fits:
-        return None, aics, "too few trains for any model"
+        return None, aics, f"too few points ({len(x)}) for AICc with any model"
     best = min(fits, key=lambda f: f.aic)
     return best, aics, best.note
 
@@ -186,31 +210,38 @@ def describe(fit: Fit | None, x: np.ndarray) -> dict:
     return d
 
 
-def bootstrap_residual(fit: Fit, x: np.ndarray, y: np.ndarray, n_boot: int, rng: np.random.Generator) -> dict:
-    """Percentile 95 % CIs of ec50, top and slope by resampling the residuals of the chosen model."""
-    if fit is None or fit.model == "none" or n_boot <= 0:
+def intervals(fit: Fit | None, x: np.ndarray) -> dict:
+    """95 % intervals of ec50, top and slope from the fit's covariance: t quantiles with the residual
+    degrees of freedom (per subject), normal quantiles when the covariance comes from known standard
+    errors (pooled). EC50 of the Hill model on the log scale (it is positive). None below 2 residual
+    degrees of freedom or when the covariance is not finite."""
+    from scipy.stats import norm, t as t_dist  # noqa: PLC0415
+
+    if fit is None or fit.model == "none" or fit.cov is None:
         return {}
-    yhat = FUNCS[fit.model](x, *fit.params)
-    res = y - yhat
-    vals = {"ec50": [], "top": [], "slope": []}
-    for _ in range(n_boot):
-        yb = yhat + rng.choice(res, size=len(res), replace=True)
-        fb = fit_model(fit.model, x, yb, p0=fit.params) if fit.model != "linear" else fit_model("linear", x, yb)
-        if fb is None:
-            continue
-        d = describe(fb, x)
-        for k in vals:
-            if d[k] is not None:
-                vals[k].append(d[k])
-    return ci(vals, n_boot)
-
-
-def ci(vals: dict, n_boot: int) -> dict:
+    cov = np.asarray(fit.cov, float)
+    if not np.all(np.isfinite(cov)) or (not fit.absolute and fit.df < 2):
+        return {}
+    q = float(norm.ppf(0.975)) if fit.absolute else float(t_dist.ppf(0.975, fit.df))
+    se = np.sqrt(np.clip(np.diag(cov), 0, None))
+    p = fit.params
     out = {}
-    for k, v in vals.items():
-        if len(v) >= max(20, n_boot // 2):
-            out[f"{k}_ci_low"], out[f"{k}_ci_high"] = (float(np.percentile(v, 2.5)), float(np.percentile(v, 97.5)))
-    return out
+    if fit.model in ("hill", "boltzmann"):
+        out["top_ci_low"], out["top_ci_high"] = p[0] - q * se[0], p[0] + q * se[0]
+        out["slope_ci_low"], out["slope_ci_high"] = p[2] - q * se[2], p[2] + q * se[2]
+        if not fit.note:
+            if fit.model == "hill" and p[1] > 0:
+                f = math.exp(q * se[1] / p[1])
+                out["ec50_ci_low"], out["ec50_ci_high"] = p[1] / f, p[1] * f
+            else:
+                out["ec50_ci_low"], out["ec50_ci_high"] = p[1] - q * se[1], p[1] + q * se[1]
+    elif fit.model == "linear":
+        out["slope_ci_low"], out["slope_ci_high"] = p[1] - q * se[1], p[1] + q * se[1]
+        g = np.array([1.0, float(np.max(x))])
+        se_top = math.sqrt(max(float(g @ cov @ g), 0.0))
+        top = p[0] + p[1] * g[1]
+        out["top_ci_low"], out["top_ci_high"] = top - q * se_top, top + q * se_top
+    return {k: float(v) for k, v in out.items()}
 
 
 # --------------------------------------------------------------------------- design: what varies
@@ -315,21 +346,29 @@ def level_means(x: np.ndarray, y: np.ndarray) -> tuple[np.ndarray, np.ndarray, n
     return ux, m, n
 
 
-def threshold(ux: np.ndarray, means: np.ndarray, crit: float | None) -> tuple[float | None, str]:
+def threshold(ux: np.ndarray, means: np.ndarray, crit: float | None, tested=None) -> tuple[float | None, str, str]:
+    """(threshold, direction or note, bound). bound is `bracketed` when the next lower tested level was
+    analysed and stayed below the criterion, else `upper` (the true threshold may be lower: the level
+    below was not tested, or its trains were all left out)."""
     if crit is None:
-        return None, ""
+        return None, "", ""
     above = np.where(np.abs(means) >= crit)[0]
     if not len(above):
-        return None, "no level exceeded the criterion"
+        return None, "no level exceeded the criterion", ""
     i = int(above[0])
-    return float(ux[i]), ("increase" if means[i] > 0 else "decrease")
+    thr = float(ux[i])
+    tested = sorted(set(float(t) for t in (tested if tested is not None else ux)))
+    lower = [t for t in tested if t < thr - 1e-9]
+    bound = "bracketed" if lower and any(abs(lower[-1] - u) <= 1e-9 for u in ux) else "upper"
+    return thr, ("increase" if means[i] > 0 else "decrease"), bound
 
 
 # --------------------------------------------------------------------------- pooled (mixed model)
 
-def mixed_level_estimates(x: np.ndarray, y: np.ndarray, subjects: np.ndarray) -> tuple[np.ndarray, np.ndarray, str]:
-    """Response per level with subject as a random intercept (statsmodels MixedLM, REML); falls back to
-    the mean of the subjects' level means when the model cannot be fitted."""
+def mixed_level_estimates(x: np.ndarray, y: np.ndarray, subjects: np.ndarray):
+    """Response per level and its standard error, with subject as a random intercept (statsmodels
+    MixedLM, REML); falls back to the mean of the subjects' level means (SE = SD / sqrt(n subjects))
+    when the model cannot be fitted. Returns (levels, estimates, standard errors, note)."""
     ux = np.unique(x)
     exog = (x[:, None] == ux[None, :]).astype(float)
     try:
@@ -339,48 +378,23 @@ def mixed_level_estimates(x: np.ndarray, y: np.ndarray, subjects: np.ndarray) ->
             _warnings.simplefilter("ignore")
             res = MixedLM(y, exog, groups=subjects).fit(reml=True)
         est = np.asarray(res.fe_params, float)
-        if est.shape == ux.shape and np.all(np.isfinite(est)):
+        se = np.asarray(res.bse_fe, float)
+        if est.shape == ux.shape and np.all(np.isfinite(est)) and np.all(np.isfinite(se)) and np.all(se > 0):
             re_var = float(np.asarray(res.cov_re).ravel()[0])
-            return ux, est, f"MixedLM, subject random intercept (variance {re_var:.3g})"
+            return ux, est, se, f"MixedLM, subject random intercept (variance {re_var:.3g})"
     except Exception as e:  # noqa: BLE001 - singular fits, convergence
         note = f"MixedLM failed ({type(e).__name__}); mean of subject means"
     else:
         note = "MixedLM gave no estimate; mean of subject means"
-    est = []
+    est, se = [], []
     for u in ux:
         per = [float(np.mean(y[(x == u) & (subjects == s)])) for s in np.unique(subjects[x == u])]
         est.append(float(np.mean(per)))
-    return ux, np.array(est), note
-
-
-def subject_level_means(x, y, subjects):
-    """{subject: (levels, means)}"""
-    out = {}
-    for s in np.unique(subjects):
-        m = subjects == s
-        out[s] = level_means(x[m], y[m])[:2]
-    return out
-
-
-def bootstrap_subjects(fit: Fit, per_subject: dict, n_boot: int, rng: np.random.Generator) -> dict:
-    """Pooled CIs: resample subjects with replacement, average their level means, refit the chosen model."""
-    if fit is None or fit.model == "none" or n_boot <= 0:
-        return {}
-    subs = list(per_subject)
-    vals = {"ec50": [], "top": [], "slope": []}
-    for _ in range(n_boot):
-        pick = rng.choice(len(subs), size=len(subs), replace=True)
-        xs = np.concatenate([per_subject[subs[i]][0] for i in pick])
-        ys = np.concatenate([per_subject[subs[i]][1] for i in pick])
-        ux, m, _ = level_means(xs, ys)
-        fb = fit_model(fit.model, ux, m, p0=fit.params if fit.model != "linear" else None)
-        if fb is None:
-            continue
-        d = describe(fb, ux)
-        for k in vals:
-            if d[k] is not None:
-                vals[k].append(d[k])
-    return ci(vals, n_boot)
+        se.append(float(np.std(per, ddof=1) / np.sqrt(len(per))) if len(per) > 1 else np.nan)
+    se = np.array(se)
+    if not np.all(np.isfinite(se) & (se > 0)):
+        se = None
+    return ux, np.array(est), se, note
 
 
 # --------------------------------------------------------------------------- neural fulcrum

@@ -10,8 +10,8 @@ application:
     after it, the change and percent change, peak change, time to peak and recovery time, with trains
     whose windows overlap another train or have too few valid samples left out of the fits. Per subject
     (and pooled over three or more subjects with subject as a random effect), along the parameter that
-    varies with the others held fixed: Hill, Boltzmann, linear or no dependence chosen by AIC, threshold,
-    EC50, maximum response and bootstrap confidence intervals; response surfaces over amplitude x
+    varies with the others held fixed: Hill, Boltzmann, linear or no dependence chosen by AICc, threshold,
+    EC50, maximum response and 95 % confidence intervals; response surfaces over amplitude x
     frequency; and the amplitude where the heart-rate response changes sign (the neural fulcrum of Ardell
     et al. 2017, with its limits stated). Figures with captions. Research outputs.
   type: processor
@@ -85,8 +85,8 @@ parameters:
     type: number
     label: Minimum valid fraction
     description: >-
-      Trains with a smaller share of valid samples (beats not flagged as artefact, no gaps) in their
-      baseline and response windows are left out of the fits.
+      Trains whose baseline or response window has a smaller share of valid samples (beats not flagged
+      as artefact, no gaps) are left out of the fits; each window is checked on its own.
     defaultValue: 0.8
     min: 0
     max: 1
@@ -118,20 +118,20 @@ parameters:
   - name: MODELS
     type: string
     label: Models
-    description: Comma list of the models compared by AIC, from hill, boltzmann, linear, none (none is always included).
+    description: Comma list of the models compared by AICc, from hill, boltzmann, linear, none (none is always included).
     defaultValue: hill,boltzmann,linear,none
   - name: N_BOOT
     type: integer
     label: Bootstrap resamples
     description: >-
-      Resamples for the 95 % confidence intervals of EC50, maximum and slope (residual bootstrap per
-      subject, bootstrap of subjects when pooled) and of the fulcrum; 0 = no intervals.
+      Resamples for the 95 % interval of the fulcrum (trains resampled within each level; only when levels
+      were repeated); 0 = none. The intervals of EC50, maximum and slope are t-based and need no resampling.
     defaultValue: 500
     min: 0
   - name: SEED
     type: integer
     label: Random seed
-    description: Seed of the bootstrap, for reproducible intervals.
+    description: Seed of the fulcrum bootstrap (each fit derives its own seed from it), for reproducible intervals.
     defaultValue: 42
   - name: VARIABLES
     type: string

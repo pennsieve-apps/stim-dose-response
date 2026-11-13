@@ -112,7 +112,8 @@ def test_rat_preset(out, truth):
 def test_pooled(out):
     f = fit(out, "pooled", "hr_bpm", group="frequency_hz=20")
     assert f["species"] == "pig" and int(f["n_subjects"]) == 3 and f["recording_id"] == "pooled"
-    assert "MixedLM" in f["note"]
+    assert "MixedLM" in f["note"] and f["n"] == f["n_levels"] == "6"
+    assert float(f["ec50_ci_low"]) < 600 < float(f["ec50_ci_high"])
     assert abs(float(f["ec50"]) / 600 - 1) < 0.15
     assert float(f["threshold"]) == 400
     assert not any(r["subject"] == "pooled" and r["species"] == "rat" for r in rows(out / "fits.csv"))
@@ -180,7 +181,7 @@ def test_model_choice():
     best, _, _ = DR.choose(x, flat, DR.ALL_MODELS, 4)
     assert best.model in ("none", "linear")
     best, _, note = DR.choose(np.array([1, 2, 3.0]), np.array([1, 2, 3.0]), DR.ALL_MODELS, 4)
-    assert best.model == "none" and "MIN_LEVELS" in note
+    assert best is None and "MIN_LEVELS" in note          # 3 points: even AICc of `none` is undefined
     lv = DR.cluster_levels([3.7819, 3.7826, 15.131, 30.13])
     assert lv[3.7819] == lv[3.7826] and lv[15.131] != lv[30.13]
 
@@ -246,3 +247,84 @@ def test_fulcrum_ignores_small_sign_flips():
     xf, note = DR.fulcrum(ux, np.array([-0.33, 5.08, 4.95, 1.76, -5.25]), 3.5)
     assert 1500 < xf < 2500 and note == "tachycardia to bradycardia"
     assert DR.fulcrum(ux, np.array([-0.3, 5.0, 4.0, 3.0, 2.0]), 3.5) == (None, "")
+
+
+def test_aicc_one_train_per_level():
+    """AICc: with one train per level, 4 levels allow only `none`, 5 add `linear`, sigmoids need 6."""
+    x4, x5, x6 = (np.array([1, 2, 4, 8, 16, 32.0][:n]) for n in (4, 5, 6))
+    y = lambda x: DR.f_hill(x, -20, 6, 2)  # noqa: E731
+    assert set(DR.choose(x4, y(x4), DR.ALL_MODELS, 4)[1]) == {"none"}
+    assert set(DR.choose(x5, y(x5), DR.ALL_MODELS, 4)[1]) == {"none", "linear"}
+    assert set(DR.choose(x6, y(x6), DR.ALL_MODELS, 4)[1]) == set(DR.ALL_MODELS)
+
+
+def test_t_intervals_small_n():
+    """The d349 2 Hz case: 5 points, a weak slope; the t-based interval of the slope includes 0."""
+    x = np.array([50, 500, 1000, 1500, 2500.0])
+    y = np.array([0.56, 1.64, 1.42, 2.10, 1.55])
+    f = DR.fit_model("linear", x, y)
+    ci = DR.intervals(f, x)
+    assert ci["slope_ci_low"] < 0 < ci["slope_ci_high"]
+    # the classical OLS interval
+    from scipy import stats
+    r = stats.linregress(x, y)
+    q = stats.t.ppf(0.975, len(x) - 2)
+    assert ci["slope_ci_low"] == pytest.approx(r.slope - q * r.stderr)
+    assert ci["slope_ci_high"] == pytest.approx(r.slope + q * r.stderr)
+
+
+def test_threshold_bounds():
+    ux = np.array([500, 1000, 1500.0])
+    means = np.array([1.0, 5.0, 6.0])
+    assert DR.threshold(ux, means, 3.5, tested=[50, 500, 1000, 1500])[2] == "bracketed"
+    # the level below 1000 was tested but none of its trains were analysed (d349 10 Hz, 20 Hz)
+    assert DR.threshold(np.array([1000, 1500.0]), np.array([5.0, 6.0]), 3.5,
+                        tested=[50, 500, 1000, 1500])[2] == "upper"
+    assert DR.threshold(np.array([50, 1500.0]), np.array([0.2, 4.1]), 3.5, tested=[50, 500, 1000, 1500])[2] == "upper"
+    # the lowest tested level already responds
+    assert DR.threshold(ux, means + 4, 3.5, tested=[500, 1000, 1500])[:3:2] == (500.0, "upper")
+
+
+def test_next_train_bounds_peak_and_after():
+    """A train without effect, followed 9 s after its end by a train with a large effect: the first train's
+    peak, after-value and recovery never see the second train."""
+    s = RS.Settings(10, 10, "train", None, 2, 0.1, 0.8, "exclude")
+    t = np.arange(0, 80, 0.25)
+    v = 80 + 0.2 * np.sin(t)
+    a = RS.Event("r", "a", 20, 25, True, "stimulation")
+    b = RS.Event("r", "b", 34, 39, True, "stimulation")
+    v[(t >= 34) & (t < 45)] -= 30
+    ok = np.ones(len(t), bool)
+    w = RS.event_windows(a, [b], s)
+    assert w["a1"] == 34
+    r = RS.respond(a, w, t, v, ok, RS.moving_mean(v, ok, 8), 4.0, s)
+    assert abs(r["peak_delta"]) < 1 and r["time_to_peak_s"] < 14 - 1
+    assert abs(r["after"] - 80) < 1 and r["after_s_used"] == pytest.approx(9)
+
+
+def test_edge_train_excluded(out):
+    """sub-r1's last train starts 2 s before the series ends: the response window is 40 % covered."""
+    r = [x for x in rows(out / "responses.csv") if x["recording_id"] == "sub-r1_rec-sweep" and x["variable"] == "hr_bpm"]
+    edge = max(r, key=lambda x: float(x["onset"]))
+    assert edge["included"] == "false" and float(edge["valid_fraction_baseline"]) == pytest.approx(1)
+    assert float(edge["valid_fraction_response"]) == pytest.approx(0.4, abs=0.06)
+    assert "response window valid share" in edge["exclusion_reason"]
+
+
+def test_fulcrum_suppresses_monotone_fit(out):
+    f = fit(out, "p2", "hr_bpm")
+    assert f["slope"] == "" and f["top"] == "" and "changes sign" in f["note"]
+
+
+def test_fits_column_order(out):
+    """conventions.md column order first, the extra columns after."""
+    r = rows(out / "fits.csv")
+    assert list(r[0].keys())[:15] == ["subject", "recording_id", "variable", "x", "group", "model", "threshold",
+                                      "threshold_criterion", "ec50", "top", "bottom", "slope", "r2", "n", "aic"]
+
+
+def test_per_fit_seed():
+    a = M.fit_seed(42, "fulcrum", "p2", "stimulation", "hr_bpm", "amplitude", "").integers(1 << 30)
+    b = M.fit_seed(42, "fulcrum", "p2", "stimulation", "hr_bpm", "amplitude", "").integers(1 << 30)
+    c = M.fit_seed(42, "fulcrum", "p2", "stimulation", "rr_ms", "amplitude", "").integers(1 << 30)
+    assert a == b != c

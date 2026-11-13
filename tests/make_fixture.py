@@ -9,13 +9,14 @@ Synthetic inputs for stim-dose-response, laid out as the compute node lays out I
   truth.json                         the planted thresholds, EC50s and the fulcrum
 
 Recordings (all responses are planted, with known parameters):
-  sub-p1, sub-p3, sub-p4 (pig, 4 Hz): amplitude 100-3200 uA x frequency 5 and 20 Hz, 5 s trains. Heart
+  sub-p1, sub-p3, sub-p4 (pig, 4 Hz): amplitude 100-3200 uA x frequency 5 and 20 Hz, each twice, 5 s trains. Heart
       rate falls by a Hill function of amplitude (top -30 bpm at 20 Hz, -10 bpm at 5 Hz, EC50 600 / 500 /
       700 uA, n = 2); mean arterial pressure falls linearly with amplitude. Three subjects -> pooled fits.
   sub-p2 (pig, 4 Hz, no BP): 10 Hz, amplitudes 100-3200 uA twice each; heart rate rises at low amplitude
       and falls at high amplitude (a planted neural fulcrum near 1063 uA).
-  sub-r1 (rat, 10 Hz, no BP): amplitude 50-1600 uA at 20 Hz; heart rate 380 bpm falls by up to 100 bpm
-      (EC50 300 uA); tests the rat preset (5 s windows).
+  sub-r1 (rat, 10 Hz, no BP): amplitude 50-1600 uA at 20 Hz, each twice; heart rate 380 bpm falls by up
+      to 100 bpm (EC50 300 uA); tests the rat preset (5 s windows). One more train starts 2 s before the
+      series ends (stim-edge: its response window is 40 % covered, so it is left out).
   sub-h1 (human, 4 Hz): resting, no stimulation -> skipped.
 
 The response to each train rises with a 1 s time constant during the train and decays with a 3 s time
@@ -115,7 +116,7 @@ def main(out: Path) -> dict:
     tops = {5: -10.0, 20: -30.0}
     for subj, ec50, seed in (("p1", 600.0, 1), ("p3", 500.0, 2), ("p4", 700.0, 3)):
         rid = f"sub-{subj}_rec-grid"
-        sched = schedule([(a, f) for f in freqs for a in amps], seed=seed)
+        sched = schedule([(a, f) for f in freqs for a in amps for _ in range(2)], seed=seed)
         dur = sched[-1][0] + 40
         t = np.arange(0, dur, 0.25)
         hr = 80 + 0.5 * np.sin(2 * np.pi * 0.25 * t) + rng.normal(0, 0.4, len(t))
@@ -159,8 +160,9 @@ def main(out: Path) -> dict:
     # ---- rat (10 Hz series, 5 s windows, no BP)
     rid = "sub-r1_rec-sweep"
     ramps = [50, 100, 200, 400, 800, 1600]
-    sched = schedule([(a, 20) for a in ramps], start=15, spacing=25, seed=5)
+    sched = schedule([(a, 20) for a in ramps for _ in range(2)], start=15, spacing=25, seed=5)
     dur = sched[-1][0] + 30
+    sched.append((dur - 2.0, (800, 20)))       # the edge train: the series ends 2 s into it
     t = np.arange(0, dur, 0.1)
     hr = 380 + 1.0 * np.sin(2 * np.pi * 1.2 * t) + rng.normal(0, 1.0, len(t))
     for onset, (a, _f) in sched:

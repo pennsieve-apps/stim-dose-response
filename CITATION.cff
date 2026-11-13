@@ -5,9 +5,10 @@ title: stim-dose-response
 abstract: 'Physiological responses to nerve stimulation and their dose-response, for any species and protocol: baseline,
   during and after each stimulation train for every heart-rate, blood-pressure and respiration series (or any series.csv
   of the same shape); change, peak change, time to peak and recovery; dose-response per subject and pooled (subject
-  as a random effect, statsmodels MixedLM) with Hill, Boltzmann, linear or no dependence chosen by AIC (Akaike 1974),
-  thresholds, EC50 and bootstrap confidence intervals (Efron 1979); amplitude x frequency response surfaces; and
-  the amplitude where the heart-rate response changes sign, after the neural fulcrum of Ardell et al. (2017).'
+  as a random effect, statsmodels MixedLM) with Hill, Boltzmann, linear or no dependence chosen by AICc (Akaike
+  1974; Hurvich and Tsai 1989), thresholds (bracketed or upper bounds), EC50 and t-based confidence intervals; amplitude
+  x frequency response surfaces; and the amplitude where the heart-rate response changes sign, after the neural
+  fulcrum of Ardell et al. (2017), with a bootstrap interval (Efron 1979) when levels were repeated.'
 authors:
 - name: Pennsieve (University of Pennsylvania)
 contact:
@@ -318,6 +319,20 @@ references:
   start: '716'
   end: '723'
   doi: 10.1109/tac.1974.1100705
+- type: article
+  title: Regression and time series model selection in small samples
+  authors:
+  - family-names: HURVICH
+    given-names: CLIFFORD M.
+  - family-names: TSAI
+    given-names: CHIH-LING
+  year: 1989
+  journal: Biometrika
+  volume: 76
+  issue: '2'
+  start: '297'
+  end: '307'
+  doi: 10.1093/biomet/76.2.297
 - type: article
   title: 'Bootstrap Methods: Another Look at the Jackknife'
   authors:

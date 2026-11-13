@@ -179,6 +179,8 @@ def timecourse(figdir, subject, var, vrows, courses_all, settings_used):
                     continue
                 y = np.interp(grid, cg, cv, left=np.nan, right=np.nan)
                 y[grid > (r["duration"] or 0.0) + after_s] = np.nan     # each train up to its own after window
+                if r.get("_next_onset") is not None:                      # ... and never into the next train
+                    y[grid >= r["_next_onset"] - r["onset"]] = np.nan
                 curves.append(y)
                 ends.append(r["duration"] or 0.0)
             if not curves:
@@ -205,7 +207,7 @@ def timecourse(figdir, subject, var, vrows, courses_all, settings_used):
     more = f" Only the {MAX_PANELS} largest parameter groups are shown." if len(panels) > MAX_PANELS else ""
     return {"path": f"figures/{name}", "caption": (
         f"Subject {subject}: change in {PS.label_of(var)} from its {base_s:g} s baseline, aligned to train onset "
-        f"(grey band: the train; where trains of different lengths share a panel, a dotted line in each level's colour marks its end), each train drawn up to {after_s:g} s after its end, one line per {x or 'train'} level (mean across trains, shaded ± SD where a level "
+        f"(grey band: the train; where trains of different lengths share a panel, a dotted line in each level's colour marks its end), each train drawn up to {after_s:g} s after its end or until the next train starts, one line per {x or 'train'} level (mean across trains, shaded ± SD where a level "
         f"was repeated), one panel per combination of the other parameters. Look for the size, direction and "
         f"timing of the response and whether it returns to baseline after the train. Trains left out of the fits "
         f"(overlapping windows, too few valid samples) are not drawn.{more}")}
@@ -239,8 +241,9 @@ def dose_response(figdir, subject, var, sfits, fulc):
         logx = bool(np.all(allx > 0) and allx.max() / max(allx.min(), 1e-12) >= 10)
         ax.axhline(0, color=AXIS, lw=0.8)
         for c, f in zip(CATEGORICAL, rows):
-            few = "MIN_LEVELS" in (f.get("note") or "")
-            lbl = (f["group"].replace(";", ", ") or "all") + (": too few levels" if few else f": {f['model']}")
+            few = "MIN_LEVELS" in (f.get("note") or "") or bool(f.get("sign_change"))
+            lbl = (f["group"].replace(";", ", ") or "all") + (
+                ": sign change" if f.get("sign_change") else ": too few levels" if few else f": {f['model']}")
             if subject.startswith("pooled"):
                 ax.plot(f["_ux"], f["_means"], "o", color=c, ms=6, mec=SURFACE, mew=1.2, zorder=3)
             else:
@@ -281,9 +284,9 @@ def dose_response(figdir, subject, var, sfits, fulc):
           "the notice for what it does and does not mean).") if fulc else ""
     return {"path": f"figures/{name}", "caption": (
         f"{who}, change in {PS.label_of(var)} during the train against the parameter that varies, one colour per "
-        f"combination of the other parameters; lines are the model chosen by AIC (Hill, Boltzmann, linear, or none "
+        f"combination of the other parameters; lines are the model chosen by AICc (Hill, Boltzmann, linear, or none "
         f"when the response does not depend on the parameter); thin dashed lines join the level means where fewer than "
-        f"MIN_LEVELS levels were tested and no curve was fitted. Dotted lines mark the threshold (lowest level whose "
+        f"MIN_LEVELS levels were tested, or where the response changes sign so no monotone curve applies. Dotted lines mark the threshold (lowest level whose "
         f"mean change exceeds the criterion in fits.csv), diamonds the EC50. Look for where the response starts, how "
         f"steeply it grows and whether it saturates.{fl}")}
 
