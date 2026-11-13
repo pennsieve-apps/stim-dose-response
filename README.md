@@ -151,8 +151,8 @@ Measured in Docker, **amd64 emulation on an M-series Mac**, run as Lambda runs i
 
 | Input | Trains x variables | Peak memory (cgroup) | Wall time |
 |---|---|---|---|
-| Discover 349, sub-2 (ecg-hrv series: `hr_bpm`, `rr_ms`, `hr_device_bpm`) | 20 x 3 | 213 MB | 3.2 s |
-| Discover 655, 3 recordings (`hr_bpm`, `rr_ms`) | 16 x 2 | 239 MB | 3.0 s |
+| Discover 349, sub-2 (ecg-hrv series: `hr_bpm`, `rr_ms`, `hr_device_bpm`) | 20 x 3 | 214 MB | 2.7 s |
+| Discover 655, 3 recordings (`hr_bpm`, `rr_ms`) | 16 x 2 | 236 MB | 2.5 s |
 | Synthetic fixture (6 recordings, 132 fits) | 79 x 1-4 | 232 MB | 8.2 s |
 
 Time grows with the number of fits (and `N_BOOT` for fulcrums with repeated levels); memory with the length of the series (all series of a
