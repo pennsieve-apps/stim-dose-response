@@ -1,0 +1,232 @@
+# yaml-language-server: $schema=https://schemas.pennsieve.io/app-manifest/v1.json
+schemaVersion: "1.0"
+application:
+  name: Stimulation Dose-Response
+  description: >-
+    Physiological responses to nerve stimulation and their dose-response, for any species and any
+    stimulation protocol. For every stimulation train and every beat- or breath-derived series it is
+    given (heart rate, RR interval, systolic, diastolic and mean arterial pressure, respiratory rate and
+    depth, or any series.csv of the same shape): the baseline before the train, the mean during it and
+    after it, the change and percent change, peak change, time to peak and recovery time, with trains
+    whose windows overlap another train or have too few valid samples left out of the fits. Per subject
+    (and pooled over three or more subjects with subject as a random effect), along the parameter that
+    varies with the others held fixed: Hill, Boltzmann, linear or no dependence chosen by AICc, threshold,
+    EC50, maximum response and 95 % confidence intervals; response surfaces over amplitude x
+    frequency; and the amplitude where the heart-rate response changes sign (the neural fulcrum of Ardell
+    et al. 2017, with its limits stated). Figures with captions. Research outputs.
+  type: processor
+  tags:
+    - physiology
+    - autonomic
+    - cardiovascular
+    - neuromodulation
+    - nerve-stimulation
+    - vagus-nerve-stimulation
+    - dose-response
+    - heart-rate-variability
+    - blood-pressure
+    - respiration
+runtime:
+  # Every series of a recording is held in memory (a few MB per hour at 4 Hz); fits are small. Measured
+  # in Docker (amd64 emulation on an M-series Mac, --cpus 1 --memory 2g, read-only, any uid) on the demo
+  # data and the fixture (README "Runtime"): peak 240 MB, under 10 s. Single-threaded.
+  cpu: 512
+  memory: 1024
+  computeTypes:
+    - standard
+  timeoutSeconds: 900
+parameters:
+  - name: SPECIES
+    type: string
+    label: Species
+    description: >-
+      Sets the default baseline and after windows (README "Species presets"). auto takes each recording's
+      species from physio-import's recordings.csv or the upstream steps, else human.
+    defaultValue: auto
+    validValues: [auto, human, pig, dog, rabbit, rat, mouse]
+  - name: BASELINE_S
+    type: string
+    label: Baseline window (s)
+    description: >-
+      Seconds before each train that make its baseline. auto = the species preset (10 s for humans, pigs
+      and dogs; 5 s for rabbits, rats and mice).
+    defaultValue: auto
+  - name: AFTER_S
+    type: string
+    label: After window (s)
+    description: Seconds after each train that make its "after" value. auto = the species preset.
+    defaultValue: auto
+  - name: RESPONSE_WINDOW
+    type: string
+    label: Response window
+    description: >-
+      What "during" is: train (mean over the whole train), peak (mean over PEAK_WINDOW_S around the
+      largest change between onset and AFTER_S after the end), or fixed:<a>,<b> (mean from a to b seconds
+      after onset, e.g. fixed:2,5).
+    defaultValue: train
+  - name: PEAK_WINDOW_S
+    type: number
+    label: Peak smoothing (s)
+    description: >-
+      Moving-mean width used to find the peak change, time to peak and recovery (keeps single beats and
+      the respiratory oscillation from being taken as the peak).
+    defaultValue: 2
+    min: 0.1
+  - name: RECOVERY_FRACTION
+    type: number
+    label: Recovery fraction
+    description: >-
+      Recovery time = seconds after the train ends until the series is back within this fraction of the
+      peak change from baseline (0.1 = 90 % recovered).
+    defaultValue: 0.1
+    min: 0.01
+    max: 1
+  - name: MIN_VALID
+    type: number
+    label: Minimum valid fraction
+    description: >-
+      Trains whose baseline or response window has a smaller share of valid samples (beats not flagged
+      as artefact, no gaps) are left out of the fits; each window is checked on its own.
+    defaultValue: 0.8
+    min: 0
+    max: 1
+  - name: OVERLAP
+    type: string
+    label: Overlapping trains
+    description: >-
+      exclude: a train whose baseline or response window overlaps another train is left out of the fits.
+      clip: its baseline is shortened to start where the previous train ended, and it is left out only
+      when less than half of BASELINE_S remains.
+    defaultValue: exclude
+    validValues: [exclude, clip]
+  - name: THRESHOLD_CRITERION
+    type: string
+    label: Threshold criterion
+    description: >-
+      A level's response counts when its mean change exceeds this. auto = the larger of 5 % of the
+      baseline and 3 SD of the train-to-train baseline variability (fits.csv says which); or pct:<n>,
+      sd:<k>, or abs:<value> in the variable's unit.
+    defaultValue: auto
+  - name: MIN_LEVELS
+    type: integer
+    label: Minimum levels for a curve
+    description: >-
+      A dose-response curve is fitted only when the varied parameter has at least this many distinct
+      levels; with fewer, fits.csv gives the level means and the threshold only.
+    defaultValue: 4
+    min: 2
+  - name: MODELS
+    type: string
+    label: Models
+    description: Comma list of the models compared by AICc, from hill, boltzmann, linear, none (none is always included).
+    defaultValue: hill,boltzmann,linear,none
+  - name: N_BOOT
+    type: integer
+    label: Bootstrap resamples
+    description: >-
+      Resamples for the 95 % interval of the fulcrum (trains resampled within each level; only when levels
+      were repeated); 0 = none. The intervals of EC50, maximum and slope are t-based and need no resampling.
+    defaultValue: 500
+    min: 0
+  - name: SEED
+    type: integer
+    label: Random seed
+    description: Seed of the fulcrum bootstrap (each fit derives its own seed from it), for reproducible intervals.
+    defaultValue: 42
+  - name: VARIABLES
+    type: string
+    label: Variables
+    description: all, or a comma list of the series.csv variables to analyse (e.g. hr_bpm,map_mmhg).
+    defaultValue: all
+  - name: FIGURE_VARIABLES
+    type: string
+    label: Figure variables
+    description: >-
+      Variables that get figures: auto (heart rate, mean arterial pressure and respiratory rate when
+      present), all, or a comma list.
+    defaultValue: auto
+  - name: FIGURES
+    type: boolean
+    label: Figures
+    description: Write the time-course, dose-response, surface and raw-trace figures.
+    defaultValue: true
+  - name: THREADS
+    type: integer
+    label: Threads
+    description: BLAS threads; 0 = from the container's CPU quota, capped by its memory.
+    defaultValue: 0
+    min: 0
+inputs:
+  - name: events
+    description: >-
+      The events output of stim-events (stim-events/events.tsv: one row per stimulation train or block
+      with its parameters). physio-import's own events.tsv (raw markers) is not read.
+    mediaTypes:
+      - text/tab-separated-values
+      - application/json
+    placement: subfolder
+    required: true
+  - name: hrv
+    description: >-
+      The hrv output of ecg-hrv (series.csv with hr_bpm, rr_ms and hr_device_bpm), or any series.csv
+      (recording_id, time_s, variable, value, valid). At least one of hrv and bp is needed.
+    mediaTypes:
+      - text/csv
+      - application/json
+      - image/png
+    placement: subfolder
+    required: false
+  - name: bp
+    description: >-
+      The bp output of bp-resp (series.csv with sbp_mmhg, dbp_mmhg, map_mmhg, pp_mmhg, resp_rate_bpm,
+      resp_amp), or any series.csv of the same shape.
+    mediaTypes:
+      - text/csv
+      - application/json
+      - image/png
+    placement: subfolder
+    required: false
+  - name: physio
+    description: >-
+      Optional: the physio output of physio-import (recordings.csv for subject and species; the NWB files
+      for one raw-trace figure per recording).
+    mediaTypes:
+      - application/x-hdf5; profile=nwb
+      - text/csv
+      - text/tab-separated-values
+      - application/json
+    placement: subfolder
+    required: false
+outputs:
+  - name: responses
+    description: >-
+      stim-dose-response/: responses.csv (per train and variable), fits.csv (dose-response per subject
+      and pooled), surface.csv (amplitude x frequency), fulcrum.csv, features.csv, figures/*.png,
+      summary.json (headline numbers and captioned figures for physio-report) and provenance.json.
+    mediaTypes:
+      - text/csv
+      - application/json
+      - image/png
+
+# How a release is tested before it is made public: the inputs a review run uses.
+# See app-deploy-service docs/app-manifest-review.md. The generator writes events/, hrv/, bp/, physio/
+# and truth.json; each port takes its own subtree.
+review:
+  version: 1
+  inputs:
+    events:
+      generate:
+        command: python -m tests.make_fixture "$REVIEW_INPUT_DIR"
+        root: events
+    hrv:
+      generate:
+        command: python -m tests.make_fixture "$REVIEW_INPUT_DIR"
+        root: hrv
+    bp:
+      generate:
+        command: python -m tests.make_fixture "$REVIEW_INPUT_DIR"
+        root: bp
+    physio:
+      generate:
+        command: python -m tests.make_fixture "$REVIEW_INPUT_DIR"
+        root: physio
