@@ -80,7 +80,7 @@ but no trains (a resting recording), is listed as skipped in `provenance.json`; 
 | `RECOVERY_FRACTION` | `0.1` | Recovered = back within this fraction of the peak change (0.1 = 90 % recovered) |
 | `MIN_VALID` | `0.8` | Trains with a smaller share of valid samples in their baseline and response windows are left out of the fits |
 | `OVERLAP` | `exclude` | `exclude`: a train whose baseline or response window overlaps another train is left out of the fits; `clip`: the baseline starts where the previous train ended, and the train is left out only when less than half of `BASELINE_S` remains |
-| `THRESHOLD_CRITERION` | `auto` | `auto` = the larger of 5 % of baseline and 3 SD of the train-to-train baseline variability; or `pct:<n>`, `sd:<k>`, `abs:<value>` |
+| `THRESHOLD_CRITERION` | `auto` | `auto` = the larger of 5 % of baseline and 3 SD of the train-to-train baseline variability (the SD of the included trains' baseline means; with fewer than 3 included trains, the pooled within-window SD of the baseline samples); or `pct:<n>`, `sd:<k>`, `abs:<value>` |
 | `MIN_LEVELS` | `4` | Fewest distinct levels for a curve fit (fewer: level means and threshold only) |
 | `MODELS` | `hill,boltzmann,linear,none` | Models compared by AIC (`none` always included) |
 | `N_BOOT` | `500` | Bootstrap resamples for the CIs; `0` = none |

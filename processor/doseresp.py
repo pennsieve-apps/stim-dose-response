@@ -13,7 +13,9 @@ the neural fulcrum. In-house implementation of published, short methods (no lice
   else `none`.
 - Threshold: the lowest level of x whose mean response exceeds the criterion in absolute value; the
   criterion (THRESHOLD_CRITERION=auto) is the larger of 5 % of the baseline and 3 SD of the baseline
-  variability (the within-window SD of the baseline samples, pooled over the subject's trains).
+  variability: the train-to-train SD of the baseline means of the subject's included trains, or, with
+  fewer than 3 such trains, the within-window SD of the baseline samples pooled over them
+  (main.subject_criteria).
 - Bootstrap CIs (N_BOOT, SEED): per subject, residual bootstrap of the chosen model (trains are rarely
   repeated at every level, so resampling trains within a level would not vary); pooled, a bootstrap of
   subjects.
